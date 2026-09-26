@@ -26,6 +26,8 @@ export class PlayerTracker {
   features: BodyFeatures | null = null;
   lastPose: Pose | null = null;
   lastSeen = -1e9;
+  /** Wall-clock (performance.now) time of the last pose, independent of the frame timestamp base. */
+  private seenAt = -1e9;
   private fImg = new LandmarkFilter(NUM_LANDMARKS);
   private fWorld = new LandmarkFilter(NUM_LANDMARKS);
   private lastT = 0;
@@ -44,7 +46,7 @@ export class PlayerTracker {
   }
 
   get present(): boolean {
-    return performance.now() - this.lastSeen < 600;
+    return performance.now() - this.seenAt < 600;
   }
 
   reset(): void {
@@ -66,6 +68,7 @@ export class PlayerTracker {
       this.fWorld.reset();
     }
     this.lastSeen = t;
+    this.seenAt = performance.now();
     this.lastT = t;
     const filtered: Pose = {
       landmarks: this.fImg.filter(pose.landmarks, t),

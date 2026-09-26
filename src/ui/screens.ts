@@ -170,7 +170,7 @@ export function cameraSetup(
   if (!cam) void open();
   else {
     void refreshList();
-    void input.useCamera();
+    input.useCamera().catch((e: unknown) => console.error('[pose]', e));
   }
 
   const timer = window.setInterval(() => {
@@ -183,8 +183,11 @@ export function cameraSetup(
         cam.frameRate >= 50 ? 'ok' : 'warn',
         `${cam.width}×${cam.height} @ ${Math.round(cam.frameRate)} fps`,
       );
-    const st = input.mediapipe?.stats;
-    if (st)
+    const mp = input.mediapipe;
+    const st = mp?.stats;
+    if (st && st.backend === 'failed')
+      set(checks.model, 'bad', `Tracking failed: ${mp.lastError ?? 'unknown error'}`);
+    else if (st)
       set(
         checks.model,
         st.backend === 'loading' ? '' : st.inferenceMs < 30 ? 'ok' : 'warn',

@@ -53,6 +53,9 @@ export class MediapipeSource implements PoseSource {
   private frameId = 0;
   private rvfc = 0;
   private lastResultAt = 0;
+  private frameErrors = 0;
+  /** Most recent worker error (shown in camera setup). */
+  lastError: string | null = null;
   private benchSink: ((ms: number) => void) | null = null;
   private opts: MediapipeOptions;
   private readyResolve: ((m: FromWorker) => void) | null = null;
@@ -101,7 +104,11 @@ export class MediapipeSource implements PoseSource {
       console.warn('[pose] GPU delegate failed, using CPU:', r.message);
       r = await this.init(model, 'CPU');
     }
-    if (r.type === 'error') throw new Error(r.message);
+    if (r.type === 'error') {
+      this.lastError = r.message;
+      this.stats.backend = 'failed';
+      throw new Error(r.message);
+    }
     if (r.type === 'ready') {
       this.model = r.model;
       this.delegate = r.delegate;
@@ -114,7 +121,10 @@ export class MediapipeSource implements PoseSource {
     this.running = true;
     this.worker = new Worker(new URL('./pose.worker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (e: MessageEvent<FromWorker>) => this.onMessage(e.data);
-    this.worker.onerror = (e) => console.error('[pose] worker error', e.message);
+    this.worker.onerror = (e) => {
+      console.error('[pose] worker error', e.message);
+      this.onMessage({ type: 'error', message: e.message || 'Pose worker failed to load', fatal: true });
+    };
     const cacheKey = `${CACHE_KEY}:${navigator.userAgent}`;
     let model: PoseModel = this.opts.model === 'auto' ? 'heavy' : this.opts.model;
     const cached = this.opts.model === 'auto' ? localStorage.getItem(cacheKey) : null;
@@ -170,7 +180,9 @@ export class MediapipeSource implements PoseSource {
     const onVideoFrame: VideoFrameCb = (now, meta) => {
       if (!this.running) return;
       this.rvfc = v.requestVideoFrameCallback!(onVideoFrame);
-      this.grab(meta.captureTime && meta.captureTime > 0 ? meta.captureTime : now);
+      // captureTime can be on a different clock on some platforms; only trust it when plausible.
+      const cap = meta.captureTime ?? 0;
+      this.grab(cap > now - 500 && cap <= now ? cap : now);
     };
     if (v.requestVideoFrameCallback) this.rvfc = v.requestVideoFrameCallback(onVideoFrame);
     else {
@@ -221,8 +233,17 @@ export class MediapipeSource implements PoseSource {
     if (m.type === 'error') {
       this.inFlight = false;
       console.warn('[pose]', m.message);
+      this.lastError = m.message;
+      if (++this.frameErrors === 10 && this.delegate === 'GPU') {
+        console.warn('[pose] GPU inference keeps failing, switching to CPU');
+        this.delegate = 'CPU';
+        void this.init(this.model, 'CPU').then((r) => {
+          if (r.type === 'ready') this.stats.backend = `${r.model.toUpperCase()} · CPU`;
+        });
+      }
       return;
     }
+    this.frameErrors = 0;
     this.inFlight = false;
     const now = performance.now();
     const a = 0.1;
