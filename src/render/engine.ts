@@ -126,9 +126,9 @@ export class Engine {
     const color = scenePass.getTextureNode('output');
     const vel = scenePass.getTextureNode('velocity').mul(fx.blur);
     const blurred = motionBlur(color, vel, float(12));
-    const glow = bloom(color, 0.22, 0.3, 1.0);
+    const glow = bloom(color, 0.12, 0.12, 2.2);
     const lit = color.add(glow);
-    const litBlurred = blurred.add(bloom(blurred, 0.22, 0.3, 1.0));
+    const litBlurred = blurred.add(bloom(blurred, 0.12, 0.12, 2.2));
 
     const dofNode = dof(litBlurred, scenePass.getViewZNode(), fx.focus, float(0.9), fx.dofAmount);
 

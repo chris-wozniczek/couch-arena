@@ -69,13 +69,14 @@ export class Arena {
     matNormal.repeat.set(6, 6);
     const mat = new THREE.MeshPhysicalMaterial({
       map: matTex,
+      color: 0xc9c4bc,
       roughness: 0.82,
       roughnessMap: noiseRoughness(512, 16, 0.85, 0.3),
       normalMap: matNormal,
       normalScale: new THREE.Vector2(0.35, 0.35),
       sheen: 0.4,
       sheenRoughness: 0.8,
-      sheenColor: new THREE.Color(0xffffff),
+      sheenColor: new THREE.Color(0x8a8680),
     });
     const top = new THREE.Mesh(new RoundedBoxGeometry(S * 2 + 0.7, 0.12, S * 2 + 0.7, 4, 0.05), mat);
     top.position.y = RING_FLOOR - 0.06;
@@ -211,7 +212,7 @@ export class Arena {
       [-2.2, 6.0, -2.2, true],
     ];
     for (const [x, y, z, shadow] of spots) {
-      const L = new THREE.SpotLight(0xffe9cc, shadow ? 200 : 95, 16, 0.5, 0.65, 1.6);
+      const L = new THREE.SpotLight(0xffe9cc, shadow ? 150 : 70, 16, 0.5, 0.65, 1.6);
       L.position.set(x, y, z);
       L.target.position.set(x * 0.25, 0, z * 0.25);
       if (shadow) {
