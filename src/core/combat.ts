@@ -18,6 +18,8 @@ export const PUNCH_STAMINA_COST: Record<PunchType, number> = {
 };
 
 export const MAX_HEALTH = 100;
+/** Global pacing: fraction of a punch's base damage that comes off the health bar. */
+export const DAMAGE_PACE = 0.5;
 export const MAX_STAMINA = 100;
 export const COMBO_WINDOW_MS = 900;
 export const COUNTER_WINDOW_MS = 450;
@@ -172,14 +174,15 @@ export function resolvePunch(
     powerMult *
     staminaFactor *
     (counter ? 1.5 : 1) *
-    damageScale;
+    damageScale *
+    DAMAGE_PACE;
   const before = defender.health;
   defender.health = Math.max(0, defender.health - damage);
   attacker.stats.damageDealt += before - defender.health;
   // Body shots sap the legs: landed body punches also drain the defender's stamina.
   if (result === 'landed' && punch.target === 'body')
-    defender.stamina = clamp(defender.stamina - damage * 1.6, 0, MAX_STAMINA);
-  if (result === 'landed' && damage > 7) defender.stunnedUntil = now + 350;
-  const impact = clamp(damage / 12, result === 'blocked' ? 0.05 : 0.2, 1);
+    defender.stamina = clamp(defender.stamina - (damage / DAMAGE_PACE) * 1.6, 0, MAX_STAMINA);
+  if (result === 'landed' && damage > 7 * DAMAGE_PACE) defender.stunnedUntil = now + 350;
+  const impact = clamp(damage / (12 * DAMAGE_PACE), result === 'blocked' ? 0.05 : 0.2, 1);
   return { result, damage, combo: result === 'landed' ? attacker.combo : 0, counter, impact };
 }

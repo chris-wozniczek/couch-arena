@@ -6,7 +6,7 @@
  * - The host owns the match clock/phases (knockdowns, counts, rounds, result) and broadcasts `phase`.
  * - Pose snapshots at 30 Hz on the unreliable channel drive the remote boxer (with a playout buffer).
  */
-import { Fighter, resolvePunch } from '../../core/combat';
+import { DAMAGE_PACE, Fighter, resolvePunch } from '../../core/combat';
 import type { Resolution } from '../../core/combat';
 import { Match } from '../../core/match';
 import type { MatchEvent, MatchPhase } from '../../core/match';
@@ -341,7 +341,7 @@ export class OnlineMode implements Mode {
       damage: m.damage,
       combo: m.combo,
       counter: false,
-      impact: Math.min(1, Math.max(m.result === 'blocked' ? 0.05 : 0.2, m.damage / 12)),
+      impact: Math.min(1, Math.max(m.result === 'blocked' ? 0.05 : 0.2, m.damage / (12 * DAMAGE_PACE))),
     };
     if (m.result === 'landed') {
       this.me.stats.landed++;
