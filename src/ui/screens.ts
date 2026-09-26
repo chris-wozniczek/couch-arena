@@ -19,7 +19,7 @@ export type Screen = { el: HTMLElement; dispose: () => void };
 export function livePreview(
   canvas: HTMLCanvasElement,
   input: InputHub,
-  opts: { lanes?: boolean; dim?: number } = {},
+  opts: { lanes?: boolean; dim?: number; color?: () => string } = {},
 ): () => void {
   const ctx = canvas.getContext('2d')!;
   let raf = 0;
@@ -38,7 +38,14 @@ export function livePreview(
       ctx.fillRect(canvas.width / 2 - 1, 0, 2, canvas.height);
     }
     input.assigned.forEach(
-      (p, i) => p && drawSkeleton(ctx, p, PLAYER_COLORS[i]!, input.players === 2 ? `P${i + 1}` : undefined),
+      (p, i) =>
+        p &&
+        drawSkeleton(
+          ctx,
+          p,
+          opts.color?.() ?? PLAYER_COLORS[i]!,
+          input.players === 2 ? `P${i + 1}` : undefined,
+        ),
     );
   };
   draw();
@@ -46,6 +53,8 @@ export function livePreview(
 }
 
 // ---- Camera setup ------------------------------------------------------------------------------
+
+const FRAMING_COLORS = { bad: '#ff4d64', warn: '#ffc53d', ok: '#3ddc84' } as const;
 
 export function cameraSetup(
   input: InputHub,
@@ -56,10 +65,9 @@ export function cameraSetup(
 ): Screen {
   const select = h('select', { 'aria-label': 'Camera' });
   const preview = h('canvas');
-  const guide = h('div', {
-    style:
-      'position:absolute;inset:6% 22%;border:2px dashed rgba(255,255,255,0.35);border-radius:40% 40% 12px 12px;pointer-events:none',
-  });
+  const guide = h('div', { class: 'frame-guide' }, h('span', {}, 'Fit head, shoulders & hands in here'));
+  /** Skeleton/guide tint: red = not usable, amber = adjust distance, green = ready to calibrate. */
+  let framing: 'bad' | 'warn' | 'ok' = 'bad';
   const checks = {
     body: h('div', { class: 'check' }, h('i', { class: 'dot' }), h('span', {}, 'Upper body')),
     dist: h('div', { class: 'check' }, h('i', { class: 'dot' }), h('span', {}, 'Distance')),
@@ -102,7 +110,7 @@ export function cameraSetup(
         h(
           'div',
           { class: 'small muted' },
-          'Stand ~2 m back so your head, shoulders, elbows and hands are in frame. Face a light source; avoid a bright window behind you.',
+          'Stand ~2 m back so your head, shoulders, elbows and hands are inside the outline. The skeleton turns green when framing and distance are good (amber = adjust distance). Face a light source; avoid a bright window behind you.',
         ),
       ),
     ),
@@ -111,7 +119,7 @@ export function cameraSetup(
   let cam = current;
   let alive = true;
   const probe = new LightingProbe();
-  const stopPreview = livePreview(preview, input);
+  const stopPreview = livePreview(preview, input, { color: () => FRAMING_COLORS[framing] });
 
   const open = async (id?: string) => {
     try {
@@ -183,6 +191,7 @@ export function cameraSetup(
         `${st.backend} · ${st.inferenceMs.toFixed(1)} ms · ${st.fps.toFixed(0)} fps`,
       );
     if (!input.trackers[0].present || !f) {
+      framing = 'bad';
       set(checks.body, 'bad', 'No one detected — step into frame');
       set(checks.dist, '', 'Distance');
     } else {
@@ -193,6 +202,7 @@ export function cameraSetup(
       );
       const d = estimateDistance(f.shoulderWidth, f.img.shoulderWidth, 16 / 9);
       const sw = f.img.shoulderWidth;
+      framing = !f.valid ? 'bad' : sw > 0.42 || sw < 0.13 ? 'warn' : 'ok';
       set(
         checks.dist,
         sw > 0.42 ? 'bad' : sw < 0.13 ? 'warn' : 'ok',
@@ -203,6 +213,7 @@ export function cameraSetup(
             : `Good distance (~${d.toFixed(1)} m)`,
       );
     }
+    guide.className = `frame-guide ${framing}`;
     if (lp)
       set(
         checks.light,
