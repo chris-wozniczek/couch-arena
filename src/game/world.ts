@@ -46,6 +46,10 @@ export class World {
   private slowScale = 1;
   private shakeAmt = 0;
   private last = 0;
+  private lastRender = 0;
+  /** `?maxfps=N` caps render rate (game logic still runs every frame); for software-GL CI runs. */
+  private readonly minFrameMs =
+    1000 / (Number(new URLSearchParams(location.search).get('maxfps')) || Infinity);
   private orbitT = 0;
   private replay: ReplayFrame[] = [];
   private replaying: { start: number; frames: ReplayFrame[]; speed: number; done: () => void } | null = null;
@@ -183,7 +187,10 @@ export class World {
     }
     this.updateCamera(realDt, now);
     this.arena.update(realDt, this.arena.excitement.value);
-    this.engine.render();
+    if (now - this.lastRender >= this.minFrameMs) {
+      this.lastRender = now;
+      this.engine.render();
+    }
     this.onAfterRender?.();
   }
 

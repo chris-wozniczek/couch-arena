@@ -13,7 +13,7 @@ function trackErrors(page: Page): string[] {
 
 test('menu → single-player fight with synthetic keyboard input', async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto('/?webgl&input=synthetic&quality=low');
+  await page.goto('/?webgl&input=synthetic&quality=low&maxfps=4');
   await expect(page.getByTestId('menu-fight')).toBeVisible({ timeout: 90_000 });
   await page.getByTestId('menu-fight').click();
   await expect(page.locator('.hud .time')).not.toHaveText('1:30', { timeout: 60_000 });
@@ -32,7 +32,7 @@ test('menu → single-player fight with synthetic keyboard input', async ({ page
 
 test('fake camera: MediaPipe detects the boxer in the recorded clip', async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto('/?webgl&quality=low');
+  await page.goto('/?webgl&quality=low&maxfps=4');
   await expect(page.getByTestId('menu-camera-setup')).toBeVisible({ timeout: 90_000 });
   await page.getByTestId('menu-camera-setup').click();
   await expect(page.getByText(/Upper body visible|Show head, shoulders/)).toBeVisible({ timeout: 90_000 });
