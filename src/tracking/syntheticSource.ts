@@ -57,7 +57,7 @@ export class SyntheticSource implements PoseSource {
         last = now;
         return;
       }
-      const from = Math.max(last + step, now - step * 30);
+      const from = Math.max(last + step, now - 5000);
       for (let t = Math.min(from, now); t <= now; t += step) {
         last = t;
         if (this.autoplay) this.scripts.forEach((s) => s.update(t));

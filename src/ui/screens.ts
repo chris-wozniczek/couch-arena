@@ -121,9 +121,9 @@ export function cameraSetup(
       input.video.srcObject = cam.stream;
       await input.video.play();
       onCamera(cam);
+      await refreshList();
       const m = modelSel.value as 'auto' | 'full' | 'heavy';
       await input.useCamera(m);
-      await refreshList();
     } catch (e) {
       set(checks.cam, 'bad', `Camera error: ${(e as Error).message}`);
     }
@@ -160,7 +160,10 @@ export function cameraSetup(
   });
   cont.addEventListener('click', () => onDone());
   if (!cam) void open();
-  else void input.useCamera().then(refreshList);
+  else {
+    void refreshList();
+    void input.useCamera();
+  }
 
   const timer = window.setInterval(() => {
     if (!alive) return;

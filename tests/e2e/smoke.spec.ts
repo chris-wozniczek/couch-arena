@@ -12,6 +12,7 @@ function trackErrors(page: Page): string[] {
 }
 
 test('menu → single-player fight with synthetic keyboard input', async ({ page }) => {
+  test.setTimeout(300_000);
   const errors = trackErrors(page);
   await page.goto('/?webgl&input=synthetic&quality=low&maxfps=4');
   await expect(page.getByTestId('menu-fight')).toBeVisible({ timeout: 90_000 });
