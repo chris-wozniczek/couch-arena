@@ -54,6 +54,8 @@ export type ReliableMessage =
     }
   | { t: 'state'; health: number; stamina: number; knockdowns: number }
   | { t: 'phase'; phase: string; round: number; clock: number; hostTs: number }
+  /** Host's round clock (ms left), sent every second so the guest's display doesn't drift. */
+  | { t: 'clock'; clock: number; hostTs: number }
   | { t: 'finished'; winner: 'host' | 'guest' | null; method: string }
   | { t: 'rematch' }
   | { t: 'bye' };
@@ -136,6 +138,8 @@ export function decodeMessage(raw: string): NetMessage | null {
       return isStr(o.phase, 16) && isNum(o.round) && isNum(o.clock) && isNum(o.hostTs)
         ? (o as unknown as NetMessage)
         : null;
+    case 'clock':
+      return isNum(o.clock) && isNum(o.hostTs) ? { t: 'clock', clock: o.clock, hostTs: o.hostTs } : null;
     case 'finished':
       return (o.winner === 'host' || o.winner === 'guest' || o.winner === null) && isStr(o.method, 16)
         ? (o as unknown as NetMessage)

@@ -66,6 +66,12 @@ describe('reconcileImpact', () => {
 describe('messages', () => {
   it('validates untrusted input', () => {
     expect(decodeMessage('not json')).toBeNull();
+    expect(decodeMessage(JSON.stringify({ t: 'clock', clock: 42_000, hostTs: 5 }))).toEqual({
+      t: 'clock',
+      clock: 42_000,
+      hostTs: 5,
+    });
+    expect(decodeMessage(JSON.stringify({ t: 'clock', clock: 'x', hostTs: 5 }))).toBeNull();
     expect(
       decodeMessage(
         JSON.stringify({

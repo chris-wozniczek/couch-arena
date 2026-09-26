@@ -161,6 +161,12 @@ export class OnlineMode implements Mode {
         if (!this.isHost) this.applyHostPhase(m.phase, m.round, m.clock);
         else if (m.phase === 'getupReq') this.handleHost(this.match!.requestGetUp(1));
         break;
+      case 'clock':
+        if (!this.isHost && this.phase === 'fight') {
+          const age = this.clock.ready ? now - this.clock.toLocal(m.hostTs) : this.clock.rtt / 2;
+          this.clockMs = m.clock - Math.max(0, age);
+        }
+        break;
       case 'finished':
         if (!this.isHost)
           void this.finish(m.winner === null ? null : (m.winner === 'guest') === !this.isHost, m.method);
@@ -408,6 +414,8 @@ export class OnlineMode implements Mode {
     if (connected && now - this.lastPing > 1000) {
       this.lastPing = now;
       this.link.send({ t: 'ping', t0: now });
+      if (this.isHost && this.match?.phase === 'fight')
+        this.link.send({ t: 'clock', clock: this.match.roundClock, hostTs: now });
     }
     if (connected && now - this.lastState > 250) {
       this.lastState = now;
