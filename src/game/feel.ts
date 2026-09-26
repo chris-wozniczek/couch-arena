@@ -4,13 +4,6 @@ import type { PunchEvent } from '../core/types';
 import type { Boxer } from '../render/boxer';
 import type { GameContext } from './context';
 
-export function hitDirection(p: Pick<PunchEvent, 'type' | 'hand'>): { lateral: number; up: number } {
-  const side = p.hand === 'left' ? 1 : -1;
-  if (p.type === 'hook') return { lateral: side, up: 0 };
-  if (p.type === 'uppercut') return { lateral: side * 0.2, up: 1 };
-  return { lateral: side * 0.25, up: 0.1 };
-}
-
 /** Applies impact visuals when `victim` (a rendered boxer) is hit. */
 export function boxerImpact(ctx: GameContext, victim: Boxer, p: PunchEvent, r: Resolution): void {
   if (r.result === 'slipped' || r.result === 'ducked') {
@@ -18,8 +11,7 @@ export function boxerImpact(ctx: GameContext, victim: Boxer, p: PunchEvent, r: R
     return;
   }
   const blocked = r.result === 'blocked';
-  const { lateral, up } = hitDirection(p);
-  victim.hit(lateral, up, blocked ? r.impact * 0.3 : r.impact, p.target === 'head');
+  victim.hit({ type: p.type, hand: p.hand, target: p.target, strength: r.impact, blocked });
   ctx.sound.impact(p.type, blocked ? 0.5 : 0.6 + r.impact * 0.5, blocked);
   if (!blocked) {
     ctx.world.hitStop(40 + r.impact * 70);
@@ -38,11 +30,14 @@ export function playerImpact(ctx: GameContext, p: PunchEvent, r: Resolution): vo
   const blocked = r.result === 'blocked';
   ctx.sound.impact(p.type, blocked ? 0.55 : 0.8 + r.impact * 0.4, blocked);
   ctx.world.shake(blocked ? 0.01 : 0.025 + r.impact * 0.04);
+  if (blocked) ctx.world.gloves.absorb(PUNCH_POWER[p.type]);
   if (!blocked) {
     ctx.world.hitStop(50 + r.impact * 60);
     ctx.world.impactFx(r.impact, true);
   }
 }
+
+const PUNCH_POWER: Record<PunchEvent['type'], number> = { jab: 0.3, cross: 0.6, hook: 0.9, uppercut: 1 };
 
 export const RESULT_LABEL: Record<Resolution['result'], string> = {
   landed: 'Landed',

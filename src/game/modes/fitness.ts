@@ -10,7 +10,6 @@ import type { PunchEvent } from '../../core/types';
 import { AiAnimator } from '../../render/animators';
 import { fmtClock, h } from '../../ui/dom';
 import type { GameContext, Mode } from '../context';
-import { hitDirection } from '../feel';
 import type { FrameInfo } from '../world';
 
 export class FitnessMode implements Mode {
@@ -47,7 +46,7 @@ export class FitnessMode implements Mode {
     const { world, input } = this.ctx;
     world.setTwoBoxers(false);
     world.cameraMode = 'firstPerson';
-    world.opponent.getUp();
+    world.opponent.reset();
     const stat = (k: string, label: string) => {
       const v = h('div', { class: 'v' }, '0');
       this.stats[k] = v;
@@ -90,8 +89,7 @@ export class FitnessMode implements Mode {
   private onPunch(p: PunchEvent): void {
     this.ctx.debug.onPunch(p.time);
     this.ctx.sound.impact(p.type, 0.5 + Math.min(0.5, p.power * 0.4), false);
-    const { lateral, up } = hitDirection(p);
-    this.ctx.world.opponent.hit(lateral * 0.5, up * 0.5, 0.25, p.target === 'head');
+    this.ctx.world.opponent.hit({ ...p, strength: 0.25, blocked: false });
     this.ctx.world.shake(0.004);
     for (const e of this.session.onPunch(p)) {
       if (e.type === 'progress') {
@@ -158,7 +156,7 @@ export class FitnessMode implements Mode {
     this.stats.kcal!.textContent = s.stats.kcal.toFixed(1);
     world.opponent.pose = this.anim.update({ kind: 'idle', start: 0, end: 0 }, f.now, f.dt, true);
     world.opponent.lookAt(world.camera.position);
-    world.gloves.update(input.trackers[0].predicted(f.now, input.latencyMs));
+    world.gloves.update(input.trackers[0].predicted(f.now, input.latencyMs), f.realDt);
   }
 
   private finish(): void {

@@ -60,7 +60,8 @@ export class Engine {
     vignette: uniform(0.35),
   };
   private dofOn = false;
-  private nodes: { normal: THREE.Node; dofOut: THREE.Node } | null = null;
+  private blurOn = false;
+  private nodes: { normal: THREE.Node; blurOut: THREE.Node; dofOut: THREE.Node } | null = null;
   private aoPass: ReturnType<typeof ao> | null = null;
 
   constructor(
@@ -125,10 +126,11 @@ export class Engine {
     const color = scenePass.getTextureNode('output');
     const vel = scenePass.getTextureNode('velocity').mul(fx.blur);
     const blurred = motionBlur(color, vel, float(12));
-    const glow = bloom(blurred, 0.38, 0.4, 0.85);
-    const lit = blurred.add(glow);
+    const glow = bloom(color, 0.12, 0.12, 2.2);
+    const lit = color.add(glow);
+    const litBlurred = blurred.add(bloom(blurred, 0.12, 0.12, 2.2));
 
-    const dofNode = dof(lit, scenePass.getViewZNode(), fx.focus, float(0.9), fx.dofAmount);
+    const dofNode = dof(litBlurred, scenePass.getViewZNode(), fx.focus, float(0.9), fx.dofAmount);
 
     const grade = (c: THREE.Node) => {
       const rgb = vec3(c as THREE.Node<'vec4'>).mul(fx.exposure);
@@ -148,7 +150,7 @@ export class Engine {
     };
 
     const toOutput = (n: THREE.Node) => smaa(renderOutput(grade(n)));
-    this.nodes = { normal: toOutput(lit), dofOut: toOutput(dofNode) };
+    this.nodes = { normal: toOutput(lit), blurOut: toOutput(litBlurred), dofOut: toOutput(dofNode) };
     pipeline.outputNode = this.nodes.normal;
     this.pipeline = pipeline;
   }
@@ -157,7 +159,20 @@ export class Engine {
   setDof(on: boolean): void {
     if (on === this.dofOn || !this.nodes) return;
     this.dofOn = on;
-    this.pipeline.outputNode = on ? this.nodes.dofOut : this.nodes.normal;
+    this.applyOutput();
+  }
+
+  /** The 12-tap motion blur only runs while a hit is actually blurring the frame. */
+  setMotionBlur(on: boolean): void {
+    if (on === this.blurOn || !this.nodes) return;
+    this.blurOn = on;
+    this.applyOutput();
+  }
+
+  private applyOutput(): void {
+    if (!this.nodes) return;
+    const n = this.nodes;
+    this.pipeline.outputNode = this.dofOn ? n.dofOut : this.blurOn ? n.blurOut : n.normal;
     this.pipeline.needsUpdate = true;
   }
 

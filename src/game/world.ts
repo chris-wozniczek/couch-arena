@@ -124,8 +124,9 @@ export class World {
   impactFx(strength: number, onPlayer: boolean): void {
     const fx = this.engine.fx;
     fx.blur.value = Math.max(fx.blur.value, 0.6 + strength * 1.2);
+    this.engine.setMotionBlur(true);
     if (onPlayer) fx.damage.value = Math.min(1, fx.damage.value + 0.5 + strength * 0.6);
-    else fx.flash.value = Math.max(fx.flash.value, 0.05 + strength * 0.08);
+    else fx.flash.value = Math.max(fx.flash.value, 0.03 + strength * 0.05);
   }
 
   setTwoBoxers(on: boolean): void {
@@ -171,6 +172,7 @@ export class World {
     const dt = realDt * scale;
     const fx = this.engine.fx;
     fx.blur.value *= Math.exp(-realDt * 9);
+    if (fx.blur.value < 0.03) this.engine.setMotionBlur(false);
     fx.flash.value *= Math.exp(-realDt * 14);
     fx.damage.value *= Math.exp(-realDt * 3.5);
 

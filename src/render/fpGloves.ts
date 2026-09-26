@@ -15,6 +15,9 @@ export class FirstPersonGloves {
   private arms: Record<Hand, THREE.Mesh>;
   private reach = 0.66;
   visible = true;
+  /** Block recoil: gloves get knocked back toward the face, then spring out. */
+  private recoil = 0;
+  private recoilV = 0;
   /** Last glove world positions (for impact FX). */
   world: Record<Hand, THREE.Vector3> = { left: new THREE.Vector3(), right: new THREE.Vector3() };
 
@@ -30,10 +33,15 @@ export class FirstPersonGloves {
     this.arms = { left: new THREE.Mesh(armGeo, armMat), right: new THREE.Mesh(armGeo, armMat) };
     for (const h of ['left', 'right'] as const) {
       this.gloves[h].castShadow = false;
-      this.gloves[h].scale.multiplyScalar(0.78);
+      this.gloves[h].scale.multiplyScalar(1.0);
       this.group.add(this.gloves[h], this.arms[h]);
     }
     camera.add(this.group);
+  }
+
+  /** Knock the gloves back (0..1) when a punch lands on the guard. */
+  absorb(strength: number): void {
+    this.recoilV -= 3 + strength * 5;
   }
 
   /** Body frame (x right, y up, z toward camera=forward for the player) → camera local (−z forward). */
@@ -41,7 +49,14 @@ export class FirstPersonGloves {
     return out.set(p.x * k, p.y * k, -p.z * k).add(SHOULDER_OFFSET);
   }
 
-  update(f: BodyFeatures | null): void {
+  update(f: BodyFeatures | null, dt = 1 / 60): void {
+    const steps = Math.ceil(Math.min(dt, 0.25) * 240);
+    const h = Math.min(dt, 0.25) / Math.max(1, steps);
+    for (let i = 0; i < steps; i++) {
+      this.recoilV += (-260 * this.recoil - 22 * this.recoilV) * h;
+      this.recoil += this.recoilV * h;
+    }
+    this.group.position.set(0, this.recoil * 0.25, -this.recoil);
     this.group.visible = this.visible && !!f;
     if (!f) return;
     const k = this.reach / Math.max(0.35, f.armLength);

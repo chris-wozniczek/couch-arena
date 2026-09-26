@@ -4,8 +4,18 @@
 import { clamp } from './math';
 import type { DefenseKind, PunchEvent, PunchType, Target } from './types';
 
-export const PUNCH_BASE_DAMAGE: Record<PunchType, number> = { jab: 4, cross: 7, hook: 8, uppercut: 9 };
-export const PUNCH_STAMINA_COST: Record<PunchType, number> = { jab: 3, cross: 5, hook: 6, uppercut: 7 };
+export const PUNCH_BASE_DAMAGE: Record<PunchType, number> = {
+  jab: 2.5,
+  cross: 7,
+  hook: 11,
+  uppercut: 12,
+};
+export const PUNCH_STAMINA_COST: Record<PunchType, number> = {
+  jab: 2.5,
+  cross: 5,
+  hook: 7.5,
+  uppercut: 8,
+};
 
 export const MAX_HEALTH = 100;
 export const MAX_STAMINA = 100;
@@ -96,7 +106,7 @@ export interface Resolution {
 
 /**
  * Which defense beats which punch.
- * - guard blocks head punches (chip damage), partially covers the body.
+ * - guard blocks head punches (chip damage); tucked elbows absorb most of a body shot.
  * - slips evade straight punches and uppercuts, not hooks (you slip into them).
  * - ducks evade straights and hooks to the head, but eat uppercuts harder.
  */
@@ -116,7 +126,7 @@ export function defenseOutcome(
   }
   if (defense === 'guard') {
     if (target === 'head') return { result: 'blocked', mult: 0.12 };
-    return { result: 'landed', mult: 0.6 };
+    return { result: 'blocked', mult: 0.35 };
   }
   return { result: 'landed', mult: 1 };
 }
@@ -166,6 +176,9 @@ export function resolvePunch(
   const before = defender.health;
   defender.health = Math.max(0, defender.health - damage);
   attacker.stats.damageDealt += before - defender.health;
+  // Body shots sap the legs: landed body punches also drain the defender's stamina.
+  if (result === 'landed' && punch.target === 'body')
+    defender.stamina = clamp(defender.stamina - damage * 1.6, 0, MAX_STAMINA);
   if (result === 'landed' && damage > 7) defender.stunnedUntil = now + 350;
   const impact = clamp(damage / 12, result === 'blocked' ? 0.05 : 0.2, 1);
   return { result, damage, combo: result === 'landed' ? attacker.combo : 0, counter, impact };

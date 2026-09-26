@@ -41,7 +41,7 @@ export class Arena {
   constructor(private scene: THREE.Scene) {
     scene.add(this.group);
     scene.background = new THREE.Color(0x020306);
-    scene.fog = new THREE.FogExp2(0x0a0d16, 0.02);
+    scene.fog = new THREE.FogExp2(0x05070c, 0.009);
     this.buildRing();
     this.buildLights();
     this.buildSeatingAndCrowd();
@@ -54,7 +54,7 @@ export class Arena {
     const pmrem = new THREE.PMREMGenerator(renderer);
     const env = pmrem.fromEquirectangular(hdr).texture;
     this.scene.environment = env;
-    this.scene.environmentIntensity = 0.22;
+    this.scene.environmentIntensity = 0.12;
     this.scene.environmentRotation.set(0, 1.2, 0);
     hdr.dispose();
     pmrem.dispose();
@@ -69,13 +69,14 @@ export class Arena {
     matNormal.repeat.set(6, 6);
     const mat = new THREE.MeshPhysicalMaterial({
       map: matTex,
+      color: 0xc9c4bc,
       roughness: 0.82,
       roughnessMap: noiseRoughness(512, 16, 0.85, 0.3),
       normalMap: matNormal,
       normalScale: new THREE.Vector2(0.35, 0.35),
       sheen: 0.4,
       sheenRoughness: 0.8,
-      sheenColor: new THREE.Color(0xffffff),
+      sheenColor: new THREE.Color(0x8a8680),
     });
     const top = new THREE.Mesh(new RoundedBoxGeometry(S * 2 + 0.7, 0.12, S * 2 + 0.7, 4, 0.05), mat);
     top.position.y = RING_FLOOR - 0.06;
@@ -173,7 +174,7 @@ export class Arena {
 
   private buildLights(): void {
     const s = this.scene;
-    s.add(new THREE.HemisphereLight(0x7080a0, 0x100808, 0.25));
+    s.add(new THREE.HemisphereLight(0x7080a0, 0x100808, 0.18));
 
     // Light rig: truss square over the ring.
     const trussMat = new THREE.MeshStandardMaterial({ color: 0x1a1c22, metalness: 0.9, roughness: 0.45 });
@@ -197,11 +198,11 @@ export class Arena {
     const edge = normalWorld.dot(viewDir).abs().pow(2.2);
     const along = uv().y;
     coneMat.colorNode = color(0xfff1d8);
-    coneMat.opacityNode = edge.mul(along.pow(1.4)).mul(0.07);
+    coneMat.opacityNode = edge.mul(along.pow(1.4)).mul(0.022);
 
     const fixtureGeo = new THREE.CylinderGeometry(0.16, 0.22, 0.34, 24);
     const fixtureMat = new THREE.MeshStandardMaterial({ color: 0x0c0c10, metalness: 0.8, roughness: 0.4 });
-    const lensMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff0d0).multiplyScalar(6) });
+    const lensMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff0d0).multiplyScalar(3.5) });
 
     const spots: Array<[number, number, number, boolean]> = [
       [0, 6.0, 0.6, true],
@@ -211,7 +212,7 @@ export class Arena {
       [-2.2, 6.0, -2.2, true],
     ];
     for (const [x, y, z, shadow] of spots) {
-      const L = new THREE.SpotLight(0xffe9cc, shadow ? 260 : 140, 16, 0.5, 0.65, 1.6);
+      const L = new THREE.SpotLight(0xffe9cc, shadow ? 150 : 70, 16, 0.5, 0.65, 1.6);
       L.position.set(x, y, z);
       L.target.position.set(x * 0.25, 0, z * 0.25);
       if (shadow) {

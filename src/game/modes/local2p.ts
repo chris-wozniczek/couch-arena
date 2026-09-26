@@ -49,8 +49,8 @@ export class LocalTwoPlayerMode implements Mode {
     input.setPlayers(2);
     world.setTwoBoxers(true);
     world.cameraMode = 'side';
-    world.opponent.getUp();
-    world.second.getUp();
+    world.opponent.reset();
+    world.second.reset();
     this.hud = new FightHud(this.ctx.hudRoot, this.names, { showSecondCombo: true });
     this.unsub = input.onUpdate((i, u) => {
       const now = performance.now();

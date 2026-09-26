@@ -120,6 +120,15 @@ export class FightHud {
 
   setDefense(text: string): void {
     this.defense.textContent = text;
+    this.defense.classList.toggle('on', !!text);
+  }
+
+  /** Pulses the defense badge when an incoming punch is absorbed by the guard. */
+  blocked(): void {
+    const d = this.defense;
+    d.classList.remove('absorb');
+    void d.offsetWidth;
+    d.classList.add('absorb');
   }
 
   destroy(): void {

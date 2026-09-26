@@ -105,6 +105,11 @@ export class Match {
     return [this.setPhase('knockdown', this.cfg.countStepMs)];
   }
 
+  /** Count at which the downed fighter automatically rises (null = staying down). */
+  get getUpCount(): number | null {
+    return this.phase === 'knockdown' ? this.getUpAt : null;
+  }
+
   /** Let a player-controlled fighter get up early (e.g. they raised their guard) after count 3. */
   requestGetUp(f: 0 | 1): MatchEvent[] {
     if (this.phase !== 'knockdown' || this.downFighter !== f || this.getUpAt === null || this.count < 3)
