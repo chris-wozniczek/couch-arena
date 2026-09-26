@@ -1,5 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 
+/** Minimal view of the debug handle `main.ts` exposes on `window`. */
+interface ArenaWindow {
+  couchArena: { mode?: { player?: { stats: { thrown: number } } } };
+}
+
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -16,7 +21,15 @@ test('menu → single-player fight with synthetic keyboard input', async ({ page
     await page.keyboard.press(k);
     await page.waitForTimeout(350);
   }
-  await expect(page.locator('.chip, .feed > *').first()).toBeVisible({ timeout: 20_000 });
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => (window as unknown as ArenaWindow).couchArena.mode?.player?.stats.thrown ?? 0),
+      {
+        timeout: 20_000,
+      },
+    )
+    .toBeGreaterThan(0);
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('menu-fight')).toBeVisible();
   expect(errors).toEqual([]);
