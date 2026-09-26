@@ -742,6 +742,8 @@ table.lb td.rank {
   overflow: auto;
 }
 .qr {
+  box-sizing: border-box;
+  margin: 0 auto;
   background: #fff;
   padding: 10px;
   border-radius: 12px;
@@ -750,8 +752,9 @@ table.lb td.rank {
 }
 .qr canvas,
 .qr img {
-  width: 100%;
-  height: 100%;
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 .code {
   font-family: var(--display);
