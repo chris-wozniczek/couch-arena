@@ -29,7 +29,7 @@ Modes:
 | Debug / perf HUD  | —                                   | D                                    |
 | Menu              | —                                   | Esc                                  |
 
-URL flags: `?input=synthetic` for keyboard/synthetic input, `?webgl` to force the WebGL2 backend, `?room=CODE` to join an online room.
+URL flags: `?input=synthetic` for keyboard/synthetic input, `?webgl` to force the WebGL2 backend, `?room=CODE` to join an online room, `?quality=ultra|high|medium|low` to pin a render tier (disables adaptive quality; `?noadapt` pins the default).
 
 ## How it works
 
