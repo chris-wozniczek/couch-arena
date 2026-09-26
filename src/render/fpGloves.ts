@@ -50,8 +50,12 @@ export class FirstPersonGloves {
   }
 
   update(f: BodyFeatures | null, dt = 1 / 60): void {
-    this.recoilV += (-260 * this.recoil - 22 * this.recoilV) * dt;
-    this.recoil += this.recoilV * dt;
+    const steps = Math.ceil(Math.min(dt, 0.25) * 240);
+    const h = Math.min(dt, 0.25) / Math.max(1, steps);
+    for (let i = 0; i < steps; i++) {
+      this.recoilV += (-260 * this.recoil - 22 * this.recoilV) * h;
+      this.recoil += this.recoilV * h;
+    }
     this.group.position.set(0, this.recoil * 0.25, -this.recoil);
     this.group.visible = this.visible && !!f;
     if (!f) return;
