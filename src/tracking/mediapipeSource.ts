@@ -54,6 +54,7 @@ export class MediapipeSource implements PoseSource {
   private rvfc = 0;
   private lastResultAt = 0;
   private frameErrors = 0;
+  private sentAt = 0;
   /** Most recent worker error (shown in camera setup). */
   lastError: string | null = null;
   private benchSink: ((ms: number) => void) | null = null;
@@ -196,8 +197,11 @@ export class MediapipeSource implements PoseSource {
   }
 
   private grab(ts: number): void {
+    // Watchdog: never let a lost worker reply stall tracking for good.
+    if (this.inFlight && performance.now() - this.sentAt > 2000) this.inFlight = false;
     if (this.inFlight || this.paused || !this.worker || this.video.readyState < 2) return;
     this.inFlight = true;
+    this.sentAt = performance.now();
     const w = this.video.videoWidth;
     const scale = w > 1280 ? 1280 / w : 1;
     const id = ++this.frameId;
@@ -228,6 +232,10 @@ export class MediapipeSource implements PoseSource {
       const r = this.readyResolve;
       this.readyResolve = null;
       r?.(m);
+      return;
+    }
+    if (m.type === 'skipped') {
+      this.inFlight = false;
       return;
     }
     if (m.type === 'error') {

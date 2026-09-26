@@ -244,7 +244,7 @@ export function cameraSetup(
 
 export function calibration(input: InputHub, slot: 0 | 1, onDone: () => void, onSkip: () => void): Screen {
   const preview = h('canvas');
-  const prompt = h('div', { class: 'prompt' }, 'Step into frame');
+  const prompt = h('div', { class: 'prompt' }, 'Step back into position…');
   const bars = CALIBRATION_PHASES.map(() => h('i'));
   const who = input.players === 2 ? `PLAYER ${slot + 1} ${slot === 0 ? '(LEFT)' : '(RIGHT)'} — ` : '';
   const el = h(
@@ -268,8 +268,15 @@ export function calibration(input: InputHub, slot: 0 | 1, onDone: () => void, on
   const aspect = input.lastFrame ? input.lastFrame.width / input.lastFrame.height : 16 / 9;
   const cal = new Calibrator(aspect);
   let finished = false;
+  /** Short countdown so the player can step back from the keyboard into position. */
+  const startAt = performance.now() + 4000;
   const unsub = input.onUpdate((i, u) => {
     if (i !== slot || finished || !u.features) return;
+    const wait = startAt - performance.now();
+    if (wait > 0) {
+      prompt.textContent = `Step back into position… ${Math.ceil(wait / 1000)}`;
+      return;
+    }
     cal.push(u.features);
     const s = cal.state;
     prompt.textContent = u.features.valid ? s.prompt : 'Show your whole upper body';
