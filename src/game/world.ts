@@ -174,9 +174,11 @@ export class World {
     else {
       // Fixed-size substeps keep match time real-time even when rendering is very slow.
       const steps = Math.ceil(realDt / 0.1);
-      for (let i = 0; i < steps; i++) this.onUpdate?.({ now, realDt: realDt / steps, dt: dt / steps });
-      this.opponent.update(dt);
-      if (this.second.root.visible) this.second.update(dt);
+      for (let i = 0; i < steps; i++) {
+        this.onUpdate?.({ now, realDt: realDt / steps, dt: dt / steps });
+        this.opponent.update(dt / steps);
+        if (this.second.root.visible) this.second.update(dt / steps);
+      }
       this.record(now);
     }
     this.updateCamera(realDt, now);

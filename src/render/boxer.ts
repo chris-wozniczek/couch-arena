@@ -86,9 +86,13 @@ class Spring {
     this.v += v;
   }
   update(dt: number, target = 0): number {
-    const a = -this.k * (this.x - target) - this.c * this.v;
-    this.v += a * dt;
-    this.x += this.v * dt;
+    // Semi-implicit Euler is only stable for small steps with stiff springs.
+    const n = Math.ceil(dt / (1 / 120));
+    const h = dt / n;
+    for (let i = 0; i < n; i++) {
+      this.v += (-this.k * (this.x - target) - this.c * this.v) * h;
+      this.x += this.v * h;
+    }
     return this.x;
   }
 }
