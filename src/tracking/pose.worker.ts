@@ -64,6 +64,7 @@ function detect(m: Extract<ToWorker, { type: 'frame' }>): void {
   const bmp = m.bitmap;
   if (!landmarker) {
     bmp.close();
+    post({ type: 'skipped', id: m.id });
     return;
   }
   // MediaPipe requires strictly increasing timestamps (integer ms).

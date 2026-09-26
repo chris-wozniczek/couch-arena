@@ -21,4 +21,5 @@ export type FromWorker =
       height: number;
       inferenceMs: number;
     }
+  | { type: 'skipped'; id: number }
   | { type: 'error'; message: string; fatal: boolean };
