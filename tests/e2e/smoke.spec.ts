@@ -17,19 +17,14 @@ test('menu → single-player fight with synthetic keyboard input', async ({ page
   await expect(page.getByTestId('menu-fight')).toBeVisible({ timeout: 90_000 });
   await page.getByTestId('menu-fight').click();
   await expect(page.locator('.hud .time')).not.toHaveText('1:30', { timeout: 60_000 });
-  for (const k of ['a', 's', 'a', 'q', 'x', 'ArrowLeft', 'a', 's']) {
-    await page.keyboard.press(k);
-    await page.waitForTimeout(350);
+  const thrown = () =>
+    page.evaluate(() => (window as unknown as ArenaWindow).couchArena.mode?.player?.stats.thrown ?? 0);
+  const keys = ['a', 's', 'q', 'x', 'ArrowLeft', 'w', 'z'];
+  for (let i = 0; i < 40 && (await thrown()) === 0; i++) {
+    await page.keyboard.press(keys[i % keys.length]!);
+    await page.waitForTimeout(600);
   }
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => (window as unknown as ArenaWindow).couchArena.mode?.player?.stats.thrown ?? 0),
-      {
-        timeout: 20_000,
-      },
-    )
-    .toBeGreaterThan(0);
+  expect(await thrown()).toBeGreaterThan(0);
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('menu-fight')).toBeVisible();
   expect(errors).toEqual([]);

@@ -9,6 +9,8 @@ export default defineConfig({
   globalSetup: './tests/e2e/global-setup.ts',
   reporter: [['list']],
   use: {
+    // Full Chromium in new headless mode (closer to real Chrome than the headless shell).
+    channel: chrome ? undefined : 'chromium',
     baseURL: 'http://localhost:4173',
     viewport: { width: 1280, height: 720 },
     launchOptions: {
