@@ -47,9 +47,19 @@ export class SyntheticSource implements PoseSource {
   }
 
   async start(): Promise<void> {
+    const step = 1000 / this.hz;
+    let last = performance.now();
+    // Parametric poses can be sampled at any time, so a late timer tick (busy main thread) emits the
+    // missed frames too; otherwise fast punches would fall between samples.
     const tick = () => {
-      if (!this.paused) {
-        const t = performance.now();
+      const now = performance.now();
+      if (this.paused) {
+        last = now;
+        return;
+      }
+      const from = Math.max(last + step, now - 5000);
+      for (let t = Math.min(from, now); t <= now; t += step) {
+        last = t;
         if (this.autoplay) this.scripts.forEach((s) => s.update(t));
         const frame: PoseFrame = {
           timestamp: t,

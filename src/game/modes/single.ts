@@ -28,6 +28,8 @@ export interface SingleOptions {
   playerName: string;
   ticket?: Promise<string | null>;
   onDone?: (summary: MatchSummary, clip: Clip | null, ticket: string | null) => void;
+  /** Called when a demo bout ends; defaults to returning to the menu. */
+  onDemoEnd?: () => void;
 }
 
 interface Pending {
@@ -51,6 +53,7 @@ export class SingleMode implements Mode {
   private stepX = 0;
   private guardHeldSince = 0;
   private finished = false;
+  private stopped = false;
   private koClip: Clip | null = null;
   private ticket: string | null = null;
   private lastDefense: DefenseKind = 'none';
@@ -205,8 +208,10 @@ export class SingleMode implements Mode {
       recorder.onClip = null;
       this.hud.el.classList.remove('hidden');
     } else await wait(2200);
+    if (this.stopped) return;
     if (this.demo) {
-      this.ctx.toMenu();
+      if (this.opts.onDemoEnd) this.opts.onDemoEnd();
+      else this.ctx.toMenu();
       return;
     }
     const s = this.summary();
@@ -283,6 +288,7 @@ export class SingleMode implements Mode {
   }
 
   stop(): void {
+    this.stopped = true;
     this.unsub?.();
     this.hud?.destroy();
     this.ctx.world.headOffset.set(0, 0, 0);

@@ -34,7 +34,8 @@ import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
 import { smaa } from 'three/addons/tsl/display/SMAANode.js';
 
-export type QualityTier = 'ultra' | 'high' | 'medium';
+export type QualityTier = 'ultra' | 'high' | 'medium' | 'low';
+export const TIERS: readonly QualityTier[] = ['ultra', 'high', 'medium', 'low'];
 
 export interface EngineInfo {
   backend: 'WebGPU' | 'WebGL2';
@@ -82,18 +83,23 @@ export class Engine {
     await this.renderer.init();
     const backend = this.renderer.backend as { isWebGPUBackend?: boolean };
     this.info.backend = backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.buildPipeline();
-    this.resize();
+    this.applyTier();
     window.addEventListener('resize', () => this.resize());
   }
 
   setTier(tier: QualityTier): void {
     if (tier === this.info.tier) return;
     this.info.tier = tier;
+    this.applyTier();
+  }
+
+  private applyTier(): void {
+    const { tier } = this.info;
     const dpr = Math.min(window.devicePixelRatio, 2);
-    this.renderer.setPixelRatio(tier === 'ultra' ? dpr : tier === 'high' ? Math.min(dpr, 1.5) : 1);
-    if (this.aoPass) this.aoPass.resolutionScale = tier === 'medium' ? 0.5 : 1;
+    const ratio = { ultra: dpr, high: Math.min(dpr, 1.5), medium: 1, low: 0.5 }[tier];
+    this.renderer.setPixelRatio(ratio);
+    if (this.aoPass) this.aoPass.resolutionScale = tier === 'low' ? 0.25 : tier === 'medium' ? 0.5 : 1;
     this.resize();
   }
 

@@ -199,6 +199,23 @@ export class App {
     void this.menu();
   }
 
+  /**
+   * Background demo bout behind the menu, lobby and waiting room. When a bout ends a new one
+   * starts in place so screens layered on top (e.g. an online waiting room) are left untouched.
+   */
+  private async attract(): Promise<void> {
+    const demo: SingleMode = new SingleMode(this.ctx, {
+      profile: AI_PROFILES.contender,
+      kind: 'demo',
+      playerName: 'Demo',
+      onDemoEnd: () => {
+        if (this.mode === demo && this.input.synthetic?.autoplay) void this.attract();
+      },
+    });
+    this.setMode(demo);
+    await demo.start();
+  }
+
   /** Main menu over an attract-mode demo bout driven by synthetic poses. */
   private async menu(silent = false): Promise<void> {
     this.link?.close();
@@ -208,10 +225,7 @@ export class App {
     this.input.setPlayers(1);
     if (!this.input.synthetic) await this.input.useSynthetic(1);
     this.input.synthetic!.autoplay = true;
-    this.setMode(
-      new SingleMode(this.ctx, { profile: AI_PROFILES.contender, kind: 'demo', playerName: 'Demo' }),
-    );
-    await this.mode!.start();
+    await this.attract();
     if (silent) return;
     const nick = h('input', {
       type: 'text',

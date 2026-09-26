@@ -6,7 +6,7 @@
 import * as THREE from 'three/webgpu';
 import { Arena } from '../render/arena';
 import { Boxer, loadBoxerAssets } from '../render/boxer';
-import { Engine } from '../render/engine';
+import { Engine, TIERS, type QualityTier } from '../render/engine';
 import { FirstPersonGloves } from '../render/fpGloves';
 
 export type CameraMode = 'firstPerson' | 'side' | 'orbit' | 'replay' | 'corner';
@@ -46,11 +46,16 @@ export class World {
   private slowScale = 1;
   private shakeAmt = 0;
   private last = 0;
+  private lastRender = 0;
+  /** `?maxfps=N` caps render rate (game logic still runs every frame); for software-GL CI runs. */
+  private readonly minFrameMs =
+    1000 / (Number(new URLSearchParams(location.search).get('maxfps')) || Infinity);
   private orbitT = 0;
   private replay: ReplayFrame[] = [];
   private replaying: { start: number; frames: ReplayFrame[]; speed: number; done: () => void } | null = null;
   private frameTimes: number[] = [];
   private tierCooldown = 0;
+  private fixedTier = false;
   private camTarget = new THREE.Vector3();
   paused = false;
 
@@ -58,6 +63,9 @@ export class World {
     const forceWebGL =
       new URLSearchParams(location.search).has('webgl') || sessionStorage.getItem('ca.webgl') === '1';
     this.engine = new Engine(canvas, { forceWebGL });
+    const q = new URLSearchParams(location.search).get('quality') as QualityTier | null;
+    if (q && TIERS.includes(q)) this.engine.setTier(q);
+    this.fixedTier = !!q || new URLSearchParams(location.search).has('noadapt');
     this.engine.renderer.onDeviceLost = () => {
       if (forceWebGL) return;
       sessionStorage.setItem('ca.webgl', '1');
@@ -96,7 +104,7 @@ export class World {
     onProgress(0.9, 'Compiling shaders');
     await this.engine.renderer.compileAsync(this.scene, this.camera);
     onProgress(1, 'Ready');
-    this.engine.renderer.setAnimationLoop((t) => this.frame(t));
+    this.engine.renderer.setAnimationLoop(() => this.frame());
   }
 
   hitStop(ms: number): void {
@@ -151,10 +159,10 @@ export class World {
     while (this.replay.length && now - this.replay[0]!.t > REPLAY_SECONDS * 1000) this.replay.shift();
   }
 
-  private frame(t: number): void {
+  private frame(): void {
     const now = performance.now();
-    const realDt = this.last ? Math.min(0.1, (t - this.last) / 1000) : 1 / 60;
-    this.last = t;
+    const realDt = this.last ? Math.min(1, (now - this.last) / 1000) : 1 / 60;
+    this.last = now;
     this.trackPerf(realDt);
     if (this.paused) return;
     let scale = this.timeScale;
@@ -168,14 +176,21 @@ export class World {
 
     if (this.replaying) this.updateReplay(now);
     else {
-      this.onUpdate?.({ now, realDt, dt });
-      this.opponent.update(dt);
-      if (this.second.root.visible) this.second.update(dt);
+      // Fixed-size substeps keep match time real-time even when rendering is very slow.
+      const steps = Math.ceil(realDt / 0.1);
+      for (let i = 0; i < steps; i++) {
+        this.onUpdate?.({ now, realDt: realDt / steps, dt: dt / steps });
+        this.opponent.update(dt / steps);
+        if (this.second.root.visible) this.second.update(dt / steps);
+      }
       this.record(now);
     }
     this.updateCamera(realDt, now);
     this.arena.update(realDt, this.arena.excitement.value);
-    this.engine.render();
+    if (now - this.lastRender >= this.minFrameMs) {
+      this.lastRender = now;
+      this.engine.render();
+    }
     this.onAfterRender?.();
   }
 
@@ -277,15 +292,14 @@ export class World {
     this.stats.frameMs = avg;
     this.stats.fps = 1000 / avg;
     this.tierCooldown -= dt;
-    if (this.tierCooldown > 0 || ft.length < 120 || document.hidden) return;
-    if (new URLSearchParams(location.search).has('noadapt')) return;
-    const tier = this.engine.info.tier;
-    if (avg > 20.5) {
-      this.engine.setTier(tier === 'ultra' ? 'high' : 'medium');
-      this.tierCooldown = 6;
+    if (this.tierCooldown > 0 || ft.length < 60 || document.hidden || this.fixedTier) return;
+    const i = TIERS.indexOf(this.engine.info.tier);
+    if (avg > 20.5 && i < TIERS.length - 1) {
+      this.engine.setTier(TIERS[i + 1]!);
+      this.tierCooldown = 4;
       ft.length = 0;
-    } else if (avg < 14 && tier !== 'ultra' && this.tierCooldown < -20) {
-      this.engine.setTier(tier === 'medium' ? 'high' : 'ultra');
+    } else if (avg < 14 && i > 0 && this.tierCooldown < -20) {
+      this.engine.setTier(TIERS[i - 1]!);
       this.tierCooldown = 6;
       ft.length = 0;
     }
