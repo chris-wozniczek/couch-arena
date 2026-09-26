@@ -78,8 +78,7 @@ export class SingleMode implements Mode {
     world.setTwoBoxers(false);
     world.cameraMode = this.demo ? 'corner' : 'firstPerson';
     world.gloves.visible = !this.demo;
-    world.opponent.proceduralWeight = 1;
-    world.opponent.getUp();
+    world.opponent.reset();
     this.hud = new FightHud(this.ctx.hudRoot, [this.opts.playerName, this.opts.profile.name]);
     this.ai.reset(performance.now());
     this.unsub = input.onUpdate((i, u) => {
@@ -146,7 +145,10 @@ export class SingleMode implements Mode {
     playerImpact(this.ctx, e, r);
     if (r.result === 'slipped' || r.result === 'ducked')
       this.hud.chip(`${RESULT_LABEL[r.result]}!`, 'evaded');
-    else if (r.result === 'blocked') this.hud.chip('Blocked', 'blocked');
+    else if (r.result === 'blocked') {
+      this.hud.chip('Blocked', 'blocked');
+      this.hud.blocked();
+    }
     this.handle(this.match.recordDamage(1, r.damage));
   }
 
@@ -172,6 +174,9 @@ export class SingleMode implements Mode {
         } else if (e.phase === 'roundEnd') this.hud.call('END OF ROUND');
         else if (e.phase === 'rest') sound.crowd(0.3);
       } else if (e.type === 'count') {
+        // Start the staged get-up two counts early so he is on his feet when the fight resumes.
+        const up = this.match.getUpCount;
+        if (e.fighter === 1 && up !== null && e.n === up - 2) world.opponent.getUp();
         this.hud.call(String(e.n));
         sound.announce(String(e.n), true);
       } else if (e.type === 'getUp') {
@@ -261,7 +266,7 @@ export class SingleMode implements Mode {
     world.opponent.lookAt(world.camera.position);
     // First-person gloves + head from tracking (with latency-hiding prediction).
     const feat = tracker.predicted(now, input.latencyMs);
-    world.gloves.update(this.demo ? null : feat);
+    world.gloves.update(this.demo ? null : feat, f.realDt);
     const ho = tracker.defense.state.headOffset;
     const downed = this.match.phase === 'knockdown' && this.match.downFighter === 0;
     const tx = this.demo ? 0 : -ho.x * 0.18;

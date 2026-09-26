@@ -82,7 +82,7 @@ export class OnlineMode implements Mode {
     world.setTwoBoxers(false);
     world.cameraMode = 'firstPerson';
     world.gloves.visible = true;
-    world.opponent.getUp();
+    world.opponent.reset();
     this.hud = new FightHud(this.ctx.hudRoot, [this.myName, this.link.peerNick]);
     this.hud.call('ONLINE');
     this.link.onMessage = (m) => this.onNet(m);
@@ -315,6 +315,10 @@ export class OnlineMode implements Mode {
     playerImpact(this.ctx, p, r);
     if (r.result === 'slipped' || r.result === 'ducked')
       this.hud.chip(`${RESULT_LABEL[r.result]}!`, 'evaded');
+    else if (r.result === 'blocked') {
+      this.hud.chip('Blocked', 'blocked');
+      this.hud.blocked();
+    }
     this.link.send({
       t: 'hit',
       id,
@@ -455,7 +459,7 @@ export class OnlineMode implements Mode {
     const snap = this.snaps.sample(now);
     if (snap) world.opponent.pose = snapshotPose(snap, 0.62);
     world.opponent.lookAt(world.camera.position);
-    world.gloves.update(tracker.predicted(now, input.latencyMs));
+    world.gloves.update(tracker.predicted(now, input.latencyMs), f.realDt);
     const ho = tracker.defense.state.headOffset;
     const downed = this.phase === 'knockdown' && this.downFighter === 'me';
     world.headOffset.x += (-ho.x * 0.18 - world.headOffset.x) * Math.min(1, f.realDt * 14);

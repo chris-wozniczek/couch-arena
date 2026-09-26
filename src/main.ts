@@ -1,3 +1,5 @@
+import '@fontsource/bebas-neue/400.css';
+import '@fontsource-variable/inter/index.css';
 import './ui/styles.css';
 import { App } from './app';
 

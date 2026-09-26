@@ -30,6 +30,32 @@ describe('defense matrix', () => {
   });
 });
 
+describe('punch balance and body shots', () => {
+  it('guard also absorbs most of a body shot', () => {
+    expect(defenseOutcome('hook', 'body', 'guard')).toEqual({ result: 'blocked', mult: 0.35 });
+  });
+  it('power punches hit much harder than jabs', () => {
+    const dmg = (t: PunchEvent['type']) =>
+      resolvePunch(new Fighter('a'), new Fighter('d'), punch(t, 0), 'none', 1, 0).damage;
+    expect(dmg('hook')).toBeGreaterThan(dmg('jab') * 3);
+    expect(dmg('uppercut')).toBeGreaterThan(dmg('jab') * 3);
+    expect(dmg('cross')).toBeGreaterThan(dmg('jab'));
+  });
+  it('landed body shots drain stamina, head shots do not', () => {
+    const body = new Fighter('d');
+    resolvePunch(new Fighter('a'), body, punch('hook', 0, 'body'), 'none', 1, 0);
+    const head = new Fighter('d');
+    resolvePunch(new Fighter('a'), head, punch('hook', 0), 'none', 1, 0);
+    expect(body.stamina).toBeLessThan(head.stamina);
+  });
+  it('guarded head shot deals only chip damage', () => {
+    const d = new Fighter('d');
+    const r = resolvePunch(new Fighter('a'), d, punch('cross', 0), 'guard', 1, 0);
+    expect(r.result).toBe('blocked');
+    expect(r.damage).toBeLessThan(2);
+  });
+});
+
 describe('resolvePunch', () => {
   it('builds combos and scales damage', () => {
     const a = new Fighter('a');

@@ -11,8 +11,19 @@ import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import {
+  exp,
+  float,
+  materialColor,
+  mix,
+  mx_noise_float,
+  positionGeometry,
+  smoothstep as tslSmoothstep,
+  uniform,
+  vec3,
+} from 'three/tsl';
 import { solveElbow } from '../core/synthetic';
-import type { Hand, Vec3 } from '../core/types';
+import type { Hand, PunchType, Target, Vec3 } from '../core/types';
 import { makeGlove } from './gloves';
 
 interface Assets {
@@ -30,6 +41,14 @@ export function loadBoxerAssets(base: string): Promise<Assets> {
       loader.loadAsync(`${base}models/boxer-anims.glb`),
     ]);
     const clips = new Map(anims.animations.map((c) => [c.name, c]));
+    // Get-up pieces cut from the kneeling clip: a hand-on-canvas kneel and the push up to standing.
+    const kneel = clips.get('Fixing_Kneeling');
+    if (kneel) {
+      const fps = 30;
+      const f = (u: number) => Math.round(u * kneel.duration * fps);
+      clips.set('Kneel_Hold', THREE.AnimationUtils.subclip(kneel, 'Kneel_Hold', f(0.15), f(0.3), fps));
+      clips.set('Kneel_Stand', THREE.AnimationUtils.subclip(kneel, 'Kneel_Stand', f(0.82), f(1), fps));
+    }
     return { character, clips };
   })();
   return assetsPromise;
@@ -74,6 +93,34 @@ export const GUARD_POSE = (stance: 'orthodox' | 'southpaw' = 'orthodox'): BoxerP
     lunge: 0,
   };
 };
+
+/** A resolved punch landing on this boxer, as seen by the renderer. */
+export interface HitSpec {
+  type: PunchType;
+  /** Attacker's punching hand. */
+  hand: Hand;
+  target: Target;
+  /** 0..1 visual strength. */
+  strength: number;
+  blocked: boolean;
+}
+
+/**
+ * Bruise sites in the character's bind pose (meters, model faces +z, +x = boxer's left):
+ * eyes, cheekbones, mouth/chin, and ribs.
+ */
+const BRUISE_SITES = {
+  eyeL: [0.036, 1.708, 0.078, 0.022],
+  eyeR: [-0.036, 1.708, 0.078, 0.022],
+  cheekL: [0.052, 1.668, 0.07, 0.028],
+  cheekR: [-0.052, 1.668, 0.07, 0.028],
+  mouth: [0, 1.622, 0.088, 0.026],
+  ribsL: [0.13, 1.24, 0.08, 0.075],
+  ribsR: [-0.13, 1.24, 0.08, 0.075],
+} as const;
+type BruiseSite = keyof typeof BRUISE_SITES;
+const floatUniform = () => uniform(0);
+type FloatUniform = ReturnType<typeof floatUniform>;
 
 class Spring {
   x = 0;
@@ -130,6 +177,13 @@ export class Boxer {
   stance: 'orthodox' | 'southpaw' = 'orthodox';
   /** 0 = pure animation clip (KO), 1 = full procedural boxing layer. */
   proceduralWeight = 1;
+  private procTarget = 1;
+  /** Knockdown state: standing, on the canvas, or in the staged get-up. */
+  private downState: 'up' | 'down' | 'rising' = 'up';
+  private riseT = 0;
+  private riseStage = 0;
+  private bruise = {} as Record<BruiseSite, FloatUniform>;
+  private sweat = floatUniform();
   private bones: Record<string, THREE.Bone> = {};
   private actions = new Map<string, THREE.AnimationAction>();
   private current: THREE.AnimationAction | null = null;
@@ -137,6 +191,13 @@ export class Boxer {
   private headSpringY = new Spring(160, 12);
   private bodySpring = new Spring(90, 11);
   private shake = new Spring(200, 10);
+  /** Head snap (yaw from hooks, pitch from straights/uppercuts, roll), torso twist/fold, arm drop. */
+  private headYaw = new Spring(110, 9);
+  private headPitch = new Spring(120, 10);
+  private headRoll = new Spring(120, 10);
+  private torsoTwist = new Spring(70, 9);
+  private torsoFold = new Spring(55, 8);
+  private armDrop = new Spring(40, 9);
   private shoulderLocal = new THREE.Vector3();
   private upperLen = 0.25;
   private foreLen = 0.245;
@@ -145,9 +206,11 @@ export class Boxer {
   private target = new THREE.Vector3(0, 1.6, 1);
   private breathe = Math.random() * 10;
   private fingerBones: THREE.Bone[] = [];
+  /** Current arm-drop amount from body shots (0 = full guard). */
+  private drop = 0;
   /** Visual state for hit flash. */
   hurtGlow = 0;
-  private materials: THREE.MeshStandardMaterial[] = [];
+  private materials: Array<THREE.Material & { emissive?: THREE.Color }> = [];
 
   constructor(
     assets: Assets,
@@ -162,9 +225,8 @@ export class Boxer {
         m.frustumCulled = false;
         const mats = Array.isArray(m.material) ? m.material : [m.material];
         m.material = mats.map((mm) => {
-          const c = (mm as THREE.MeshStandardMaterial).clone();
-          if (c.name === 'MI_Superhero_Male' && opts.trunkTint !== undefined)
-            c.color = new THREE.Color(opts.trunkTint);
+          const src = mm as THREE.MeshStandardMaterial;
+          const c = src.name === 'MI_Superhero_Male' ? this.skinMaterial(src, opts.trunkTint) : src.clone();
           c.envMapIntensity = 1.0;
           this.materials.push(c);
           return c;
@@ -183,7 +245,7 @@ export class Boxer {
     const idle = this.actions.get('Idle_Loop');
     idle?.play();
     this.current = idle ?? null;
-    for (const n of ['Death01', 'Hit_Chest', 'Hit_Head', 'Punch_Jab', 'Punch_Cross']) {
+    for (const n of ['Death01', 'Hit_Chest', 'Hit_Head', 'Punch_Jab', 'Punch_Cross', 'Kneel_Stand']) {
       const a = this.actions.get(n);
       if (a) {
         a.setLoop(THREE.LoopOnce, 1);
@@ -193,10 +255,71 @@ export class Boxer {
     this.pose = GUARD_POSE();
     this.gloveL = makeGlove(opts.gloveColor, true);
     this.gloveR = makeGlove(opts.gloveColor, false);
-    this.gloveL.scale.multiplyScalar(1.1);
-    this.gloveR.scale.multiplyScalar(1.1);
+    this.gloveL.scale.multiplyScalar(1.4);
+    this.gloveR.scale.multiplyScalar(1.4);
     this.root.add(this.gloveL, this.gloveR);
     this.measure();
+  }
+
+  /**
+   * Skin: physical material with a subtle sheen and a sweat clearcoat that builds over the fight, plus
+   * procedural bruising (reddening → purple swelling) painted in bind-pose space so it sticks to the rig.
+   */
+  private skinMaterial(src: THREE.MeshStandardMaterial, tint?: number): THREE.MeshPhysicalNodeMaterial {
+    const m = new THREE.MeshPhysicalNodeMaterial();
+    m.name = src.name;
+    m.map = src.map;
+    m.normalMap = src.normalMap;
+    m.normalScale.copy(src.normalScale);
+    m.roughnessMap = src.roughnessMap;
+    m.metalnessMap = src.metalnessMap;
+    m.roughness = src.roughness;
+    m.metalness = src.metalness;
+    m.color.set(tint ?? 0xffffff);
+    m.sheen = 0.35;
+    m.sheenRoughness = 0.55;
+    m.sheenColor = new THREE.Color(0xd08a70);
+    m.specularIntensity = 0.6;
+    m.clearcoatNode = this.sweat.mul(0.5).add(0.05);
+    m.clearcoatRoughnessNode = float(0.35);
+    const p = positionGeometry;
+    const grain = mx_noise_float(p.mul(70)).mul(0.35).add(0.75);
+    let redness: THREE.Node<'float'> = float(0);
+    let purple: THREE.Node<'float'> = float(0);
+    for (const k of Object.keys(BRUISE_SITES) as BruiseSite[]) {
+      const [x, y, z, r] = BRUISE_SITES[k];
+      const u = floatUniform();
+      this.bruise[k] = u;
+      const d = p.sub(vec3(x, y, z));
+      const mask = exp(d.dot(d).div(-r * r)).mul(grain);
+      redness = redness.add(mask.mul(u.min(0.5).mul(2)));
+      purple = purple.add(mask.mul(tslSmoothstep(0.35, 1, u)));
+    }
+    const base = materialColor.rgb;
+    const red = mix(base, base.mul(vec3(1.05, 0.55, 0.5)), redness.clamp(0, 1).mul(0.75));
+    m.colorNode = mix(red, base.mul(vec3(0.42, 0.26, 0.36)), purple.clamp(0, 1).mul(0.8));
+    return m;
+  }
+
+  /** Where a punch lands: straights hit the eye opposite the punching hand, hooks the cheek. */
+  private bruiseSite(h: HitSpec): BruiseSite {
+    // The attacker's left hand lands on this boxer's right side.
+    const side = h.hand === 'left' ? 'R' : 'L';
+    if (h.target === 'body') return `ribs${side}`;
+    if (h.type === 'uppercut') return 'mouth';
+    if (h.type === 'hook') return `cheek${side}`;
+    return `eye${side}`;
+  }
+
+  /** Clears bruises/sweat and stands the boxer up instantly (new match). */
+  reset(): void {
+    for (const u of Object.values(this.bruise)) u.value = 0;
+    this.sweat.value = 0;
+    this.downState = 'up';
+    this.procTarget = this.proceduralWeight = 1;
+    this.current?.fadeOut(0.3);
+    this.current = null;
+    this.play('Idle_Loop', 0.3);
   }
 
   /** Serializes the full visual state (bones + gloves) for KO replays. */
@@ -273,7 +396,7 @@ export class Boxer {
     return (hand === 'left' ? this.gloveL : this.gloveR).getWorldPosition(out);
   }
 
-  play(name: 'Death01' | 'Idle_Loop' | 'Dance_Loop' | 'Hit_Head' | 'Hit_Chest', fade = 0.25): void {
+  play(name: string, fade = 0.25): void {
     const a = this.actions.get(name);
     if (!a || a === this.current) return;
     a.reset().play();
@@ -281,42 +404,119 @@ export class Boxer {
     this.current = a;
   }
 
+  /** Drop to the canvas. The procedural boxing layer fades out so the fall clip plays untouched. */
   knockDown(): void {
+    this.downState = 'down';
+    this.procTarget = 0;
     this.play('Death01', 0.18);
   }
 
+  get isDown(): boolean {
+    return this.downState !== 'up';
+  }
+
+  /**
+   * Staged, boxer-like recovery (~1.8 s): roll onto a knee with a glove on the canvas, pause, push up to
+   * standing, then settle back into the guard. No-op if already standing or rising.
+   */
   getUp(): void {
-    this.play('Idle_Loop', 0.6);
+    if (this.downState !== 'down') {
+      if (this.downState === 'up') {
+        this.procTarget = 1;
+        this.play('Idle_Loop', 0.4);
+      }
+      return;
+    }
+    this.downState = 'rising';
+    this.riseT = 0;
+    this.riseStage = 0;
+    const hold = this.actions.get('Kneel_Hold');
+    if (hold) {
+      hold.setLoop(THREE.LoopPingPong, Infinity);
+      hold.timeScale = 0.6;
+    }
+    this.play(hold ? 'Kneel_Hold' : 'Idle_Loop', 0.8);
+  }
+
+  private updateRise(dt: number): void {
+    if (this.downState !== 'rising') return;
+    this.riseT += dt;
+    if (this.riseStage === 0 && this.riseT > 0.95) {
+      this.riseStage = 1;
+      const stand = this.actions.get('Kneel_Stand');
+      if (stand) stand.timeScale = 1.15;
+      this.play(stand ? 'Kneel_Stand' : 'Idle_Loop', 0.3);
+    } else if (this.riseStage === 1 && this.riseT > 1.65) {
+      this.riseStage = 2;
+      this.play('Idle_Loop', 0.4);
+      this.procTarget = 1;
+      this.downState = 'up';
+    }
   }
 
   celebrate(): void {
+    this.procTarget = 0.35;
     this.play('Dance_Loop', 0.5);
   }
 
-  /** Hit reaction impulse. dir: -1..1 lateral (from attacker's view), strength 0..1. */
-  hit(lateral: number, up: number, strength: number, head: boolean): void {
-    if (head) {
-      this.headSpringX.kick(lateral * 9 * strength);
-      this.headSpringY.kick(-(1 + up) * 7 * strength);
+  /** Physical hit reaction + bruising, shaped by punch type, side and target. */
+  hit(h: HitSpec): void {
+    const k = h.strength * (h.blocked ? 0.3 : 1);
+    // +1 = the head/torso turns toward this boxer's left (away from the attacker's right hand).
+    const side = h.hand === 'left' ? -1 : 1;
+    if (h.target === 'head' && !h.blocked) {
+      if (h.type === 'hook') {
+        this.headYaw.kick(side * 14 * k);
+        this.headRoll.kick(side * 7 * k);
+        this.torsoTwist.kick(side * 3.5 * k);
+      } else if (h.type === 'uppercut') {
+        this.headPitch.kick(-16 * k);
+        this.torsoFold.kick(-2.5 * k);
+      } else {
+        this.headPitch.kick(-(h.type === 'jab' ? 7 : 11) * k);
+        this.headYaw.kick(side * 3 * k);
+      }
+      this.headSpringX.kick(side * 4 * k);
+    } else if (h.target === 'body' && !h.blocked) {
+      this.torsoFold.kick(6 * k);
+      this.armDrop.kick(6 * k);
+      this.torsoTwist.kick(side * 2 * k);
     }
-    this.bodySpring.kick(-3.2 * strength);
-    this.hurtGlow = Math.min(1, this.hurtGlow + strength);
+    this.bodySpring.kick(-(h.target === 'body' ? 4.5 : 3.2) * k);
+    this.shake.kick(k * 4);
+    this.hurtGlow = Math.min(1, this.hurtGlow + k * 0.6);
+    if (!h.blocked) {
+      const u = this.bruise[this.bruiseSite(h)];
+      if (u) u.value = Math.min(1, u.value + h.strength * (h.type === 'jab' ? 0.07 : 0.16));
+      this.sweat.value = Math.min(1, this.sweat.value + 0.015);
+    }
   }
 
   update(dt: number): void {
     this.breathe += dt;
+    this.updateRise(dt);
+    this.proceduralWeight += (this.procTarget - this.proceduralWeight) * Math.min(1, dt * 6);
     this.mixer.update(dt);
-    // Face the opponent (yaw only).
-    const rp = this.root.position;
-    const yaw = Math.atan2(this.target.x - rp.x, this.target.z - rp.z);
-    this.root.rotation.y = yaw;
+    // Face the opponent (yaw only); a fighter on the canvas stays where he fell.
+    if (this.downState !== 'down') {
+      const rp = this.root.position;
+      const yaw = Math.atan2(this.target.x - rp.x, this.target.z - rp.z);
+      const d = Math.atan2(Math.sin(yaw - this.root.rotation.y), Math.cos(yaw - this.root.rotation.y));
+      this.root.rotation.y += this.downState === 'up' ? d : d * Math.min(1, dt * 3);
+    }
     for (const b of this.fingerBones) b.scale.setScalar(0.35);
     const hx = this.headSpringX.update(dt);
     const hy = this.headSpringY.update(dt);
     const body = this.bodySpring.update(dt);
-    this.shake.update(dt);
+    const shake = this.shake.update(dt);
+    const yawH = this.headYaw.update(dt);
+    const pitchH = this.headPitch.update(dt);
+    const rollH = this.headRoll.update(dt);
+    const twistT = this.torsoTwist.update(dt);
+    const fold = this.torsoFold.update(dt);
+    this.drop = this.armDrop.update(dt);
     this.hurtGlow = Math.max(0, this.hurtGlow - dt * 3);
-    for (const m of this.materials) m.emissive?.setRGB(this.hurtGlow * 0.25, 0, 0);
+    for (const m of this.materials) m.emissive?.setRGB(this.hurtGlow * 0.12, 0, 0);
 
     const w = this.proceduralWeight;
     const P = this.pose;
@@ -328,13 +528,18 @@ export class Boxer {
       const spine2 = this.bone('spine_02');
       const spine3 = this.bone('spine_03');
       const pelvis = this.bone('pelvis');
-      spine2.rotateX((0.12 + P.duck * 1.3 - body * 0.4) * w);
-      spine2.rotateZ(P.lean * 0.9 * w);
-      spine3.rotateY(P.twist * w);
+      spine2.rotateX((0.12 + P.duck * 1.3 - body * 0.4 + fold * 0.5) * w);
+      spine2.rotateZ((P.lean * 0.9 + shake * 0.03) * w);
+      spine3.rotateY((P.twist + twistT * 0.35) * w);
+      spine3.rotateX(fold * 0.25 * w);
       pelvis.rotateY(P.twist * 0.4 * w);
+      const neck = this.bones['neck_01'];
+      neck?.rotateY(yawH * 0.25 * w);
+      neck?.rotateX(pitchH * 0.2 * w);
       const head = this.bone('Head');
-      head.rotateZ(hx * 0.5 * w);
-      head.rotateX((hy * 0.6 - 0.08) * w);
+      head.rotateY(yawH * 0.45 * w);
+      head.rotateZ((hx * 0.5 + rollH * 0.4) * w);
+      head.rotateX((hy * 0.6 + pitchH * 0.45 - 0.08) * w);
       this.model.updateMatrixWorld(true);
       this.solveArm('left', P.left, w);
       this.solveArm('right', P.right, w);
@@ -351,11 +556,13 @@ export class Boxer {
     const S = upper.getWorldPosition(new THREE.Vector3());
     // Targets are relative to the shoulder midpoint in the fighter frame, but IK runs from the actual
     // shoulder joint; convert the target and pole into world space.
-    const Wt = this.toWorld(arm.wrist);
+    const d = Math.max(0, Math.min(1, this.drop));
+    const wr = { x: arm.wrist.x * (1 + d * 0.4), y: arm.wrist.y - d * 0.3, z: arm.wrist.z * (1 - d * 0.4) };
+    const Wt = this.toWorld(wr);
     const poleEnd = this.toWorld({
-      x: arm.wrist.x + arm.pole.x,
-      y: arm.wrist.y + arm.pole.y,
-      z: arm.wrist.z + arm.pole.z,
+      x: wr.x + arm.pole.x,
+      y: wr.y + arm.pole.y,
+      z: wr.z + arm.pole.z,
     });
     const poleDir = poleEnd.sub(Wt);
     const { elbow, wrist } = solveElbow(
@@ -379,7 +586,7 @@ export class Boxer {
     const hp = handB.getWorldPosition(new THREE.Vector3());
     const ep = lower.getWorldPosition(new THREE.Vector3());
     const fwd = hp.clone().sub(ep).normalize();
-    const pos = hp.clone().addScaledVector(fwd, 0.06);
+    const pos = hp.clone().addScaledVector(fwd, 0.08);
     this.root.worldToLocal(pos);
     g.position.copy(pos);
     // Orient glove +z along the forearm; back of the hand roughly "up" in the fighter frame with roll.

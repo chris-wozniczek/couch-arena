@@ -25,8 +25,8 @@ export const DEFAULT_DEFENSE_TUNING: DefenseTuning = {
   slipExit: 0.26,
   duckEnter: 0.45,
   duckExit: 0.28,
-  guardLow: 0.95,
-  guardWide: 0.9,
+  guardLow: 1.1,
+  guardWide: 1.1,
   guardHyst: 0.15,
 };
 
@@ -70,7 +70,7 @@ export class DefenseDetector {
     const handUp = (h: 'left' | 'right'): boolean => {
       const w = b.arms[h].wristImg;
       const dy = (w.y - nose.y) / Sn;
-      return dy < T.guardLow + hyst && dy > -0.9 - hyst && b.arms[h].forward < 0.6 * P.armLength;
+      return dy < T.guardLow + hyst && dy > -0.9 - hyst && b.arms[h].forward < 0.7 * P.armLength;
     };
     const wide = (h: 'left' | 'right'): boolean =>
       Math.abs(b.arms[h].wrist.x - b.head.x) / P.shoulderWidth < T.guardWide + hyst;
