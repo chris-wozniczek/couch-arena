@@ -41,6 +41,11 @@ describe('punch balance and body shots', () => {
     expect(dmg('uppercut')).toBeGreaterThan(dmg('jab') * 3);
     expect(dmg('cross')).toBeGreaterThan(dmg('jab'));
   });
+  it('a full-power clean hook takes well over a dozen to empty the health bar', () => {
+    const d = new Fighter('d');
+    const r = resolvePunch(new Fighter('a'), d, punch('hook', 0), 'none', 1, 0);
+    expect(100 / r.damage).toBeGreaterThan(15);
+  });
   it('landed body shots drain stamina, head shots do not', () => {
     const body = new Fighter('d');
     resolvePunch(new Fighter('a'), body, punch('hook', 0, 'body'), 'none', 1, 0);
