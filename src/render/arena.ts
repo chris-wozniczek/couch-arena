@@ -25,7 +25,7 @@ import {
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { bannerTexture, floorTexture, matTexture, noiseNormalMap, noiseRoughness } from './textures';
+import { bannerTexture, matTexture, photoTexture } from './textures';
 
 export const RING_HALF = 3.05;
 export const RING_FLOOR = 0;
@@ -65,18 +65,17 @@ export class Arena {
     const S = RING_HALF;
     // Mat with slight padding lift.
     const matTex = matTexture();
-    const matNormal = noiseNormalMap(512, 32, 1.6, 3);
-    matNormal.repeat.set(6, 6);
+    // Woven cotton-duck canvas: photo-scanned weave normal/roughness under the printed branding.
     const mat = new THREE.MeshPhysicalMaterial({
       map: matTex,
-      color: 0xc9c4bc,
-      roughness: 0.82,
-      roughnessMap: noiseRoughness(512, 16, 0.85, 0.3),
-      normalMap: matNormal,
-      normalScale: new THREE.Vector2(0.35, 0.35),
-      sheen: 0.4,
-      sheenRoughness: 0.8,
-      sheenColor: new THREE.Color(0x8a8680),
+      color: 0xa9a49b,
+      roughness: 1,
+      roughnessMap: photoTexture('denim_fabric_rough', false, 7),
+      normalMap: photoTexture('denim_fabric_nor_gl', false, 7),
+      normalScale: new THREE.Vector2(0.55, 0.55),
+      sheen: 0.35,
+      sheenRoughness: 0.85,
+      sheenColor: new THREE.Color(0x7a7670),
     });
     const top = new THREE.Mesh(new RoundedBoxGeometry(S * 2 + 0.7, 0.12, S * 2 + 0.7, 4, 0.05), mat);
     top.position.y = RING_FLOOR - 0.06;
@@ -85,10 +84,14 @@ export class Arena {
 
     // Apron skirt with banners.
     const apronMat = (text: string) =>
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshPhysicalMaterial({
         map: bannerTexture(text, '#131a33', '#e8e2d0'),
-        roughness: 0.6,
-        metalness: 0.05,
+        roughness: 0.75,
+        normalMap: photoTexture('crepe_satin_nor_gl', false, 3),
+        normalScale: new THREE.Vector2(0.4, 0.4),
+        sheen: 0.5,
+        sheenRoughness: 0.4,
+        sheenColor: new THREE.Color(0x4a5580),
       });
     const sides = [
       'COUCH ARENA|WEBCAM BOXING',
@@ -122,7 +125,10 @@ export class Arena {
       g.add(p);
       const padMat = new THREE.MeshPhysicalMaterial({
         color: padColors[(i + 2) % 4],
-        roughness: 0.32,
+        roughness: 0.55,
+        roughnessMap: photoTexture('leather_red_02_rough'),
+        normalMap: photoTexture('leather_red_02_nor_gl'),
+        normalScale: new THREE.Vector2(0.6, 0.6),
         clearcoat: 0.8,
         clearcoatRoughness: 0.25,
       });
@@ -258,7 +264,15 @@ export class Arena {
 
   private buildSeatingAndCrowd(): void {
     // Stepped seating banks on all four sides.
-    const seatMat = new THREE.MeshStandardMaterial({ color: 0x14161d, roughness: 0.8 });
+    const seatMat = new THREE.MeshPhysicalMaterial({
+      color: 0x1a1218,
+      roughness: 1,
+      roughnessMap: photoTexture('velour_velvet_rough', false, 4),
+      normalMap: photoTexture('velour_velvet_nor_gl', false, 4),
+      sheen: 0.8,
+      sheenRoughness: 0.5,
+      sheenColor: new THREE.Color(0x5a2a3a),
+    });
     const rows = 14;
     for (let side = 0; side < 4; side++) {
       const a = (side * Math.PI) / 2;
@@ -285,12 +299,16 @@ export class Arena {
       .max(0)
       .mul(this.excitement.mul(0.16).add(0.015));
     crowdMat.positionNode = positionLocal.add(vec3(0, bounce, 0));
+    // Muted clothing, skin-toned heads, and rows fading into the dark away from the ring light.
     const shirt = mix(
-      vec3(0.05, 0.06, 0.09),
-      vec3(h.mul(0.5), h2.mul(0.3), h.mul(h2).mul(0.6)).add(0.05),
-      step(0.35, h2),
+      vec3(0.03, 0.035, 0.05),
+      vec3(h.mul(0.35), h2.mul(0.22), h.mul(h2).mul(0.4)).add(0.04),
+      step(0.45, h2),
     );
-    crowdMat.colorNode = shirt;
+    const skinTone = mix(vec3(0.32, 0.2, 0.14), vec3(0.62, 0.44, 0.34), hash(instanceIndex.add(37)));
+    const isHead = step(0.74, positionLocal.y);
+    const falloff = float(1).sub(positionWorld.y.add(PLATFORM_H).div(7).clamp(0, 0.8));
+    crowdMat.colorNode = mix(shirt, skinTone.mul(0.55), isHead).mul(falloff);
     const crowd = new THREE.InstancedMesh(person, crowdMat, count);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -341,9 +359,15 @@ export class Arena {
   }
 
   private buildFloorAndScreens(): void {
-    const ft = floorTexture();
-    ft.repeat.set(8, 8);
-    const floorMat = new THREE.MeshStandardMaterial({ map: ft, roughness: 0.35, metalness: 0.1 });
+    // Polished arena concrete: photo-scanned albedo/normal/roughness, darkened so spill light pools on it.
+    const floorMat = new THREE.MeshStandardMaterial({
+      map: photoTexture('hangar_concrete_floor_diff', true, 7),
+      color: 0x5a5a60,
+      roughness: 0.75,
+      roughnessMap: photoTexture('hangar_concrete_floor_rough', false, 7),
+      normalMap: photoTexture('hangar_concrete_floor_nor_gl', false, 7),
+      metalness: 0,
+    });
     const fl = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), floorMat);
     fl.rotation.x = -Math.PI / 2;
     fl.position.y = -PLATFORM_H - 0.1;

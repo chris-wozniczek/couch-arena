@@ -94,9 +94,9 @@ export class World {
       this.arena.loadEnvironment(this.engine.renderer, `${base}env/arena.hdr`),
     ]);
     onProgress(0.75, 'Rigging');
-    this.opponent = new Boxer(assets, { gloveColor: 0xb3122a, trunkTint: 0xffffff });
+    this.opponent = new Boxer(assets, { gloveColor: 0xb3122a, trunkTint: 0x8c0f22 });
     this.opponent.root.position.set(0, 0, -0.5);
-    this.second = new Boxer(assets, { gloveColor: 0x1b3fa6, trunkTint: 0xc8d4ff });
+    this.second = new Boxer(assets, { gloveColor: 0x1b3fa6, trunkTint: 0x14308c });
     this.second.root.position.set(0, 0, 0.5);
     this.second.root.visible = false;
     this.scene.add(this.opponent.root, this.second.root);

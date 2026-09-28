@@ -15,6 +15,7 @@ import {
   exp,
   float,
   materialColor,
+  dot,
   mix,
   mx_noise_float,
   positionGeometry,
@@ -24,7 +25,7 @@ import {
 } from 'three/tsl';
 import { solveElbow } from '../core/synthetic';
 import type { Hand, PunchType, Target, Vec3 } from '../core/types';
-import { makeGlove } from './gloves';
+import { makeGlove, orientGlove } from './gloves';
 
 interface Assets {
   character: GLTF;
@@ -74,18 +75,22 @@ export interface BoxerPose {
   lunge: number;
 }
 
+/** Glove roll at guard: knuckles up, palms angled toward the face. */
+export const GUARD_ROLL = 0.45;
+
 export const GUARD_POSE = (stance: 'orthodox' | 'southpaw' = 'orthodox'): BoxerPose => {
   const leadRight = stance === 'southpaw';
+  // Lead hand slightly forward at eye level, rear hand on the cheek; elbows down over the ribs.
   return {
     left: {
-      wrist: { x: -0.11, y: 0.12, z: leadRight ? 0.24 : 0.32 },
-      pole: { x: -0.6, y: -1, z: -0.1 },
-      roll: 0,
+      wrist: { x: -0.105, y: leadRight ? 0.1 : 0.09, z: leadRight ? 0.21 : 0.3 },
+      pole: { x: -0.35, y: -1, z: 0.05 },
+      roll: GUARD_ROLL,
     },
     right: {
-      wrist: { x: 0.11, y: 0.11, z: leadRight ? 0.32 : 0.24 },
-      pole: { x: 0.6, y: -1, z: -0.1 },
-      roll: 0,
+      wrist: { x: 0.105, y: leadRight ? 0.09 : 0.1, z: leadRight ? 0.3 : 0.21 },
+      pole: { x: 0.35, y: -1, z: 0.05 },
+      roll: GUARD_ROLL,
     },
     lean: 0,
     duck: 0,
@@ -149,6 +154,9 @@ const tmpB = new THREE.Vector3();
 const tmpC = new THREE.Vector3();
 const tmpQ = new THREE.Quaternion();
 const tmpQ2 = new THREE.Quaternion();
+const tmpM = new THREE.Matrix4();
+const UP = new THREE.Vector3(0, 1, 0);
+const FORWARD = new THREE.Vector3(0, 0, 1);
 
 /** Rotate `bone` (in world space) so that its child at `childWorld` points at `targetWorld`. */
 function aimBone(
@@ -198,6 +206,9 @@ export class Boxer {
   private torsoTwist = new Spring(70, 9);
   private torsoFold = new Spring(55, 8);
   private armDrop = new Spring(40, 9);
+  /** Gloves knocked back into the face when a punch lands on the guard. */
+  private guardKnock = new Spring(260, 20);
+  private knock = 0;
   private shoulderLocal = new THREE.Vector3();
   private upperLen = 0.25;
   private foreLen = 0.245;
@@ -275,13 +286,11 @@ export class Boxer {
     m.metalnessMap = src.metalnessMap;
     m.roughness = src.roughness;
     m.metalness = src.metalness;
-    m.color.set(tint ?? 0xffffff);
+    m.color.set(0xffffff);
     m.sheen = 0.35;
     m.sheenRoughness = 0.55;
     m.sheenColor = new THREE.Color(0xd08a70);
     m.specularIntensity = 0.6;
-    m.clearcoatNode = this.sweat.mul(0.5).add(0.05);
-    m.clearcoatRoughnessNode = float(0.35);
     const p = positionGeometry;
     const grain = mx_noise_float(p.mul(70)).mul(0.35).add(0.75);
     let redness: THREE.Node<'float'> = float(0);
@@ -296,8 +305,21 @@ export class Boxer {
       purple = purple.add(mask.mul(tslSmoothstep(0.35, 1, u)));
     }
     const base = materialColor.rgb;
-    const red = mix(base, base.mul(vec3(1.05, 0.55, 0.5)), redness.clamp(0, 1).mul(0.75));
-    m.colorNode = mix(red, base.mul(vec3(0.42, 0.26, 0.36)), purple.clamp(0, 1).mul(0.8));
+    // Trunks: the dark texture band between hips and mid-thigh, recoloured as satin in the fighter's colour.
+    const lum = dot(base, vec3(0.3, 0.59, 0.11));
+    const band = tslSmoothstep(0.6, 0.68, p.y).mul(float(1).sub(tslSmoothstep(1.06, 1.12, p.y)));
+    const trunks = band.mul(float(1).sub(tslSmoothstep(0.16, 0.3, lum)));
+    const tc = new THREE.Color(tint ?? 0x7a0f1c);
+    const trunkColor = vec3(tc.r, tc.g, tc.b).mul(lum.mul(3.2).add(0.35));
+    // Warm the skin slightly (blood under the surface) and deepen it where sweat collects.
+    const skin = base.mul(vec3(1.04, 0.98, 0.95));
+    const red = mix(skin, skin.mul(vec3(1.05, 0.55, 0.5)), redness.clamp(0, 1).mul(0.75));
+    const bruised = mix(red, skin.mul(vec3(0.42, 0.26, 0.36)), purple.clamp(0, 1).mul(0.8));
+    m.colorNode = mix(bruised, trunkColor, trunks);
+    // Sweat: a thin wet clearcoat that builds over the fight, breaking up with noise; satin trunks shine.
+    const wet = mx_noise_float(p.mul(28)).mul(0.5).add(0.5);
+    m.clearcoatNode = mix(this.sweat.mul(wet.mul(0.5).add(0.5)).mul(0.7).add(0.06), float(0.55), trunks);
+    m.clearcoatRoughnessNode = mix(float(0.3).sub(this.sweat.mul(0.12)), float(0.35), trunks);
     return m;
   }
 
@@ -462,6 +484,7 @@ export class Boxer {
   /** Physical hit reaction + bruising, shaped by punch type, side and target. */
   hit(h: HitSpec): void {
     const k = h.strength * (h.blocked ? 0.3 : 1);
+    if (h.blocked) this.guardKnock.kick(3 + h.strength * 4);
     // +1 = the head/torso turns toward this boxer's left (away from the attacker's right hand).
     const side = h.hand === 'left' ? -1 : 1;
     if (h.target === 'head' && !h.blocked) {
@@ -515,6 +538,7 @@ export class Boxer {
     const twistT = this.torsoTwist.update(dt);
     const fold = this.torsoFold.update(dt);
     this.drop = this.armDrop.update(dt);
+    this.knock = Math.max(0, this.guardKnock.update(dt));
     this.hurtGlow = Math.max(0, this.hurtGlow - dt * 3);
     for (const m of this.materials) m.emissive?.setRGB(this.hurtGlow * 0.12, 0, 0);
 
@@ -557,7 +581,12 @@ export class Boxer {
     // Targets are relative to the shoulder midpoint in the fighter frame, but IK runs from the actual
     // shoulder joint; convert the target and pole into world space.
     const d = Math.max(0, Math.min(1, this.drop));
-    const wr = { x: arm.wrist.x * (1 + d * 0.4), y: arm.wrist.y - d * 0.3, z: arm.wrist.z * (1 - d * 0.4) };
+    const kn = Math.min(1, this.knock) * Math.max(0, 1 - arm.wrist.z / 0.5);
+    const wr = {
+      x: arm.wrist.x * (1 + d * 0.4) * (1 - kn * 0.2),
+      y: arm.wrist.y - d * 0.3 + kn * 0.03,
+      z: Math.max(0.07, arm.wrist.z * (1 - d * 0.4) - kn * 0.09),
+    };
     const Wt = this.toWorld(wr);
     const poleEnd = this.toWorld({
       x: wr.x + arm.pole.x,
@@ -589,13 +618,11 @@ export class Boxer {
     const pos = hp.clone().addScaledVector(fwd, 0.08);
     this.root.worldToLocal(pos);
     g.position.copy(pos);
-    // Orient glove +z along the forearm; back of the hand roughly "up" in the fighter frame with roll.
-    const roll = (hand === 'left' ? this.pose.left.roll : this.pose.right.roll) * this.proceduralWeight;
-    const fl = fwd.clone().transformDirection(new THREE.Matrix4().copy(this.root.matrixWorld).invert());
-    const up = new THREE.Vector3(Math.sin(roll) * (hand === 'left' ? 1 : -1), Math.cos(roll), 0);
-    const m = new THREE.Matrix4().lookAt(new THREE.Vector3(), fl, up);
-    g.quaternion.setFromRotationMatrix(m);
-    // lookAt aims −z; flip to +z.
-    g.quaternion.multiply(tmpQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
+    // Knuckles along the forearm; roll turns the fist over (root frame: +y up, +z toward the opponent).
+    const guardRoll = GUARD_ROLL * (1 - this.proceduralWeight);
+    const roll =
+      (hand === 'left' ? this.pose.left.roll : this.pose.right.roll) * this.proceduralWeight + guardRoll;
+    const fl = fwd.transformDirection(tmpM.copy(this.root.matrixWorld).invert());
+    orientGlove(g.quaternion, fl, UP, FORWARD, roll, hand);
   }
 }

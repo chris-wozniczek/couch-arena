@@ -5,9 +5,12 @@
 import * as THREE from 'three/webgpu';
 import type { BodyFeatures } from '../core/body';
 import type { Hand } from '../core/types';
-import { makeGlove } from './gloves';
+import { trackedRoll } from './animators';
+import { makeGlove, orientGlove } from './gloves';
 
 const SHOULDER_OFFSET = new THREE.Vector3(0, -0.3, -0.12);
+const UP = new THREE.Vector3(0, 1, 0);
+const FORWARD = new THREE.Vector3(0, 0, -1);
 
 export class FirstPersonGloves {
   group = new THREE.Group();
@@ -15,6 +18,7 @@ export class FirstPersonGloves {
   private arms: Record<Hand, THREE.Mesh>;
   private reach = 0.66;
   visible = true;
+  private roll: Record<Hand, number> = { left: 0.45, right: 0.45 };
   /** Block recoil: gloves get knocked back toward the face, then spring out. */
   private recoil = 0;
   private recoilV = 0;
@@ -74,10 +78,9 @@ export class FirstPersonGloves {
       const g = this.gloves[h];
       g.position.copy(w).addScaledVector(dir, 0.07);
       const lateral = Math.abs(a.wrist.x - a.shoulder.x);
-      const roll = lateral > 0.28 && a.extension > 0.4 ? 1.3 : 0.15;
-      const up = new THREE.Vector3(Math.sin(roll) * (h === 'left' ? 1 : -1), Math.cos(roll), 0);
-      const m = new THREE.Matrix4().lookAt(new THREE.Vector3(), dir.clone().negate(), up);
-      g.quaternion.setFromRotationMatrix(m);
+      const want = trackedRoll(a.extension, lateral);
+      this.roll[h] += (want - this.roll[h]) * Math.min(1, dt * 20);
+      orientGlove(g.quaternion, dir, UP, FORWARD, this.roll[h], h);
       const arm = this.arms[h];
       arm.position.copy(e).addScaledVector(dir, len / 2);
       arm.scale.set(1, len * 0.9, 1);
