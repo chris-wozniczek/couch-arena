@@ -308,7 +308,11 @@ export class Boxer {
     // Trunks: the dark texture band between hips and mid-thigh, recoloured as satin in the fighter's colour.
     const lum = dot(base, vec3(0.3, 0.59, 0.11));
     const band = tslSmoothstep(0.6, 0.68, p.y).mul(float(1).sub(tslSmoothstep(1.06, 1.12, p.y)));
-    const trunks = band.mul(float(1).sub(tslSmoothstep(0.16, 0.3, lum)));
+    // Skin (even shaded skin) is strongly red-over-blue; the trunks fabric is a near-neutral grey-brown.
+    const chroma = base.r.sub(base.b).div(base.r.add(0.02));
+    const trunks = band
+      .mul(float(1).sub(tslSmoothstep(0.14, 0.24, lum)))
+      .mul(float(1).sub(tslSmoothstep(0.22, 0.36, chroma)));
     const tc = new THREE.Color(tint ?? 0x7a0f1c);
     const trunkColor = vec3(tc.r, tc.g, tc.b).mul(lum.mul(3.2).add(0.35));
     // Warm the skin slightly (blood under the surface) and deepen it where sweat collects.
