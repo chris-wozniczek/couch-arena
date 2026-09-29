@@ -177,21 +177,17 @@ export function bannerTexture(text: string, bg: string, fg: string, w = 2048, h 
   return t;
 }
 
-/** Concrete-ish arena floor. */
-export function floorTexture(size = 1024): THREE.CanvasTexture {
-  const hgt = noiseField(size, 8, 5);
-  const [c, ctx] = canvas(size, size);
-  const img = ctx.createImageData(size, size);
-  for (let i = 0; i < hgt.length; i++) {
-    const v = 22 + hgt[i]! * 30;
-    img.data[i * 4] = v;
-    img.data[i * 4 + 1] = v * 1.02;
-    img.data[i * 4 + 2] = v * 1.08;
-    img.data[i * 4 + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-  const t = new THREE.CanvasTexture(c);
+const photoLoader = new THREE.TextureLoader();
+
+/**
+ * Photo-scanned PBR map from `public/textures` (CC0, Poly Haven). Returns immediately; the image streams in
+ * and the material updates when it arrives (the browser cache dedupes repeat loads of the same file).
+ */
+export function photoTexture(name: string, srgb = false, repeat = 1): THREE.Texture {
+  const t = photoLoader.load(`${import.meta.env.BASE_URL}textures/${name}.webp`);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 16;
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.repeat.set(repeat, repeat);
   return t;
 }

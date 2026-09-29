@@ -1,11 +1,11 @@
 /** Boxing glove geometry + leather materials, shared by the first-person gloves and the 3D boxers. */
 import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { noiseNormalMap, noiseRoughness } from './textures';
+import { photoTexture } from './textures';
 
 /**
- * A sculpted glove with its knuckles pointing along +z, back of the hand toward +y, thumb on −x (right
- * glove; mirror x for the left). Sized in meters (~0.3 m long like a 14 oz glove).
+ * A sculpted glove with its knuckles pointing along +z, back of the hand toward +y, thumb on −x. In a
+ * right-handed frame with +x = y × z that is the wearer's right side, i.e. a left glove; mirror x for the right. Sized in meters (~0.3 m long like a 14 oz glove).
  */
 export function gloveGeometry(): THREE.BufferGeometry {
   // Main fist: a sphere deformed into a rounded mitt, fuller at the knuckles.
@@ -43,32 +43,35 @@ export function gloveGeometry(): THREE.BufferGeometry {
     [fist, thumb, cuff, cuffCap].map((x) => x.toNonIndexed()),
     true,
   )!;
-  g.computeVertexNormals();
+  // Keep each part's smooth normals; recomputing on the non-indexed merge would facet the leather.
   return g;
 }
 
-let leatherNormal: THREE.Texture | null = null;
-let leatherRough: THREE.Texture | null = null;
-
+/** Grained, lightly waxed leather (photo-scanned grain normal/roughness) with a glossy top coat. */
 export function leatherMaterial(color: number): THREE.MeshPhysicalMaterial {
-  leatherNormal ??= noiseNormalMap(512, 48, 2.2, 9);
-  leatherRough ??= noiseRoughness(512, 24, 0.4, 0.25, 4);
-  const m = new THREE.MeshPhysicalMaterial({
+  return new THREE.MeshPhysicalMaterial({
     color,
-    roughness: 0.42,
-    roughnessMap: leatherRough,
-    normalMap: leatherNormal,
-    normalScale: new THREE.Vector2(0.25, 0.25),
-    clearcoat: 0.55,
-    clearcoatRoughness: 0.3,
-    sheen: 0.3,
-    sheenColor: new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.4),
+    roughness: 0.6,
+    roughnessMap: photoTexture('leather_red_02_rough', false, 2),
+    normalMap: photoTexture('leather_red_02_nor_gl', false, 2),
+    normalScale: new THREE.Vector2(0.7, 0.7),
+    clearcoat: 0.6,
+    clearcoatRoughness: 0.22,
+    sheen: 0.25,
+    sheenRoughness: 0.5,
+    sheenColor: new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.35),
   });
-  return m;
 }
 
 export function cuffMaterial(): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({ color: 0xf2efe8, roughness: 0.5, clearcoat: 0.3 });
+  return new THREE.MeshPhysicalMaterial({
+    color: 0xeeeae2,
+    roughness: 0.55,
+    normalMap: photoTexture('leather_red_02_nor_gl', false, 3),
+    normalScale: new THREE.Vector2(0.4, 0.4),
+    clearcoat: 0.35,
+    clearcoatRoughness: 0.3,
+  });
 }
 
 /** Glove mesh (groups: fist, thumb → leather; cuff → trim). */
@@ -77,8 +80,42 @@ export function makeGlove(color: number, left: boolean): THREE.Mesh {
   const leather = leatherMaterial(color);
   const trim = cuffMaterial();
   const mesh = new THREE.Mesh(geo, [leather, leather, trim, trim]);
-  if (left) mesh.scale.x = -1;
+  if (!left) mesh.scale.x = -1;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+const gx = new THREE.Vector3();
+const gy = new THREE.Vector3();
+const gz = new THREE.Vector3();
+const gm = new THREE.Matrix4();
+
+/**
+ * Orients a glove with its knuckles along `fwd` (forearm direction). The back of the hand starts facing
+ * `up` for a level forearm and `forward` (toward the opponent) as the forearm turns vertical (guard,
+ * uppercut), then rolls about the forearm: roll 0 = palm down / knuckles to the opponent, positive turns
+ * the back of the hand outward (π/2 = vertical thumb-up fist). `up`, `forward` and `fwd` share one
+ * right-handed frame.
+ */
+export function orientGlove(
+  out: THREE.Quaternion,
+  fwd: THREE.Vector3,
+  up: THREE.Vector3,
+  forward: THREE.Vector3,
+  roll: number,
+  hand: 'left' | 'right',
+): THREE.Quaternion {
+  gz.copy(fwd).normalize();
+  const vert = Math.abs(gz.dot(up));
+  const a = Math.min(1, Math.max(0, (vert - 0.5) / 0.4));
+  const k = a * a * (3 - 2 * a);
+  gy.copy(up)
+    .multiplyScalar(1 - k)
+    .addScaledVector(forward, k);
+  gy.addScaledVector(gz, -gy.dot(gz));
+  if (gy.lengthSq() < 1e-6) gy.copy(forward).addScaledVector(gz, -forward.dot(gz));
+  gy.normalize().applyAxisAngle(gz, hand === 'right' ? roll : -roll);
+  gx.crossVectors(gy, gz);
+  return out.setFromRotationMatrix(gm.makeBasis(gx, gy, gz));
 }
