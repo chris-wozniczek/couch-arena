@@ -210,6 +210,8 @@ export class Boxer {
   private guardKnock = new Spring(260, 20);
   private knock = 0;
   private shoulderLocal = new THREE.Vector3();
+  /** How far the torso (dip, lean, lunge) has carried the shoulders from their calibrated rest point. */
+  private shoulderShift = new THREE.Vector3();
   private upperLen = 0.25;
   private foreLen = 0.245;
   private gloveL: THREE.Mesh;
@@ -411,6 +413,11 @@ export class Boxer {
     return this.root.localToWorld(out);
   }
 
+  private ikWorld(p: Vec3): THREE.Vector3 {
+    const out = new THREE.Vector3(-p.x, p.y, p.z).add(this.shoulderLocal).add(this.shoulderShift);
+    return this.root.localToWorld(out);
+  }
+
   /** World head position (for aiming punches at this boxer). */
   headWorld(out = new THREE.Vector3()): THREE.Vector3 {
     return this.bone('Head')
@@ -569,6 +576,12 @@ export class Boxer {
       head.rotateZ((hx * 0.5 + rollH * 0.4) * w);
       head.rotateX((hy * 0.6 + pitchH * 0.45 - 0.08) * w);
       this.model.updateMatrixWorld(true);
+      // Arm targets ride with the shoulders so the guard stays at the face when the body dips or leans.
+      this.bone('upperarm_l').getWorldPosition(tmpA);
+      this.bone('upperarm_r').getWorldPosition(this.shoulderShift);
+      this.root.worldToLocal(this.shoulderShift.add(tmpA).multiplyScalar(0.5));
+      this.shoulderShift.y -= 0.03;
+      this.shoulderShift.sub(this.shoulderLocal).multiplyScalar(w);
       this.solveArm('left', P.left, w);
       this.solveArm('right', P.right, w);
     } else this.model.updateMatrixWorld(true);
@@ -591,8 +604,8 @@ export class Boxer {
       y: arm.wrist.y - d * 0.3 + kn * 0.03,
       z: Math.max(0.07, arm.wrist.z * (1 - d * 0.4) - kn * 0.09),
     };
-    const Wt = this.toWorld(wr);
-    const poleEnd = this.toWorld({
+    const Wt = this.ikWorld(wr);
+    const poleEnd = this.ikWorld({
       x: wr.x + arm.pole.x,
       y: wr.y + arm.pole.y,
       z: wr.z + arm.pole.z,
